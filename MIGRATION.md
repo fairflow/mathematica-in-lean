@@ -1,10 +1,12 @@
 # Lean 3 → Lean 4 Migration Map — MM-Lean Bridge
 
-Status: **phases 1–2a landed** — the wire protocol (AST + parser + serializer)
-and the reflection layer (`Expr → String`, in `MetaM`) are ported and build
-clean on Lean 4 `v4.31.0`, with build-time tests, still dependency-free (only
-`import Lean`). The translation rule engine — the first piece needing mathlib4 +
-Qq — is next. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
+Status: **phases 1–2a landed; phase 3 underway.** Wire protocol + reflection
+(`Expr → String`, `MetaM`) done and tested. Phase 3 has integrated **mathlib4 +
+Qq** (deps fetched, 8k+ oleans cached) and ported the **unreflection leaves**
+(`Mathematica/Unreflect.lean`: name / level / binderInfo, `MMExpr → Except _`).
+Still to do in phase 3: the rule-database engine (env extensions), the
+`MMExpr → MetaM Expr` core + Qq rules + `MetaM` binder telescopes, then
+`lean_form.m`. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.
 
 This document maps every component to its Lean 4 equivalent, flags the structural

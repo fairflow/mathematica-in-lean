@@ -8,3 +8,4 @@ and the user-facing tactics.  See MIGRATION.md.
 import Mathematica.MMExpr
 import Mathematica.Wire
 import Mathematica.Reflect
+import Mathematica.Unreflect
