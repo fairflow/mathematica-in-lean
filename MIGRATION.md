@@ -1,8 +1,10 @@
 # Lean 3 → Lean 4 Migration Map — MM-Lean Bridge
 
-Status: **phase 1 landed** — the wire protocol (AST + parser + serializer) is
-ported and builds clean on Lean 4 `v4.31.0`, with build-time round-trip tests.
-Translation/reflection layers next. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
+Status: **phases 1–2a landed** — the wire protocol (AST + parser + serializer)
+and the reflection layer (`Expr → String`, in `MetaM`) are ported and build
+clean on Lean 4 `v4.31.0`, with build-time tests, still dependency-free (only
+`import Lean`). The translation rule engine — the first piece needing mathlib4 +
+Qq — is next. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.
 
 This document maps every component to its Lean 4 equivalent, flags the structural
@@ -244,7 +246,7 @@ server under a v14 kernel via `wolframscript`.
 
 1. ✅ **Scaffold** — `lean-toolchain` (v4.31.0), `lakefile.toml`, `Mathematica/` modules, `.gitignore`. mathlib4 + Qq intentionally deferred to the translation layer (phase 1 is dependency-free, builds offline in ~1s). CI still TODO.
 2. ✅ **Wire + MMExpr** — `Mathematica/MMExpr.lean` (`MMExpr`, `MFloat`, `format`, `toWire`) + `Mathematica/Wire.lean` (hand-rolled `List Char` recursive-descent parser + `preprocess`). Build-time `#guard` round-trip tests pass, no Mathematica kernel needed. Parsec/`String.Iterator` rewrite deferred to the efficiency pass (§9).
-3. **Reflection** (`form_of_*`): `Expr → String`. Golden-file tests against known Lean terms.
+3. ✅ **Reflection** — `Mathematica/Reflect.lean`: `formatName` / `formatLevel` / `formatBinderInfo` / `formatExpr` (`Expr → String`) in `MetaM` (resolves `fvar`/`mvar` against the context). Handles Lean 4-only `.lit`→`LeanLitNat/Str`, `.proj`→`LeanProj`, transparent `.mdata`; `let` unfolded (`expand_let`). Build-time golden `#eval` tests on closed terms + fvar/mvar structure checks. No Mathematica, no mathlib.
 4. **Transport** (`execute` + `.wl` server + client): get a live round-trip echoing through Mathematica 14. Prove the socket path end-to-end before translation.
 5. **Rule infra**: env extensions + attributes + `evalConst` loader (§6).
 6. **Unreflection + rules**: `MMExpr → MetaM Expr`, binder rules via telescopes (§7), Qq rule bodies, mathlib4 names.
