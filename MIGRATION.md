@@ -1,15 +1,16 @@
 # Lean 3 → Lean 4 Migration Map — MM-Lean Bridge
 
-Status: **the entire Lean side is ported and tested (phases 1–4).** Wire
-protocol, reflection (`Expr → String`), unreflection, the `MMExpr → MetaM Expr`
-translation engine, and the **transport + `run_command_on*` layer**
-(`Mathematica/Tactic.lean`) all build clean on Lean 4 `v4.31.0` with build-time
-tests — including a **mock-kernel end-to-end round-trip** (reflect → send →
-parse → translate) needing no live Mathematica. Remaining before a *live* run:
-port the Mathematica side (`server2.m`/`lean_form.m` → `.wl`, mathlib4 names +
-`OfNat` numerals) and validate against a real Mathematica 14 kernel. Also
-pending: rule extensibility (env-extensions) and type-polymorphic numerals.
-Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
+Status: **the bridge works end-to-end.** All six Lean modules *and* the
+Mathematica side (`wolfram/lean_form.wl`, `server.wl`, `client.py`) are ported
+and **validated live against a Mathematica kernel** (WolframScript 1.13): Lean
+reflects a term, the kernel evaluates/simplifies it, and the answer translates
+back to a Lean `Expr` — e.g. `1+2 ⇝ 3` (returns `(3 : ℕ)`) and
+`Simplify(x*x) ⇝ x^2` (a genuine symbolic step, local `x` preserved). Two
+transports: `Transport.wolframScript` (fresh `wolframscript -code` per call,
+validated) and `Transport.pythonClient` (persistent socket via `server.wl`).
+Remaining polish: rule extensibility (env-extensions), type-polymorphic
+numerals, a `tactic`/`elab` wrapper, and broader `lean_form.wl` operator
+coverage. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.
 
 This document maps every component to its Lean 4 equivalent, flags the structural
@@ -252,10 +253,10 @@ server under a v14 kernel via `wolframscript`.
 1. ✅ **Scaffold** — `lean-toolchain` (v4.31.0), `lakefile.toml`, `Mathematica/` modules, `.gitignore`. mathlib4 + Qq intentionally deferred to the translation layer (phase 1 is dependency-free, builds offline in ~1s). CI still TODO.
 2. ✅ **Wire + MMExpr** — `Mathematica/MMExpr.lean` (`MMExpr`, `MFloat`, `format`, `toWire`) + `Mathematica/Wire.lean` (hand-rolled `List Char` recursive-descent parser + `preprocess`). Build-time `#guard` round-trip tests pass, no Mathematica kernel needed. Parsec/`String.Iterator` rewrite deferred to the efficiency pass (§9).
 3. ✅ **Reflection** — `Mathematica/Reflect.lean`: `formatName` / `formatLevel` / `formatBinderInfo` / `formatExpr` (`Expr → String`) in `MetaM` (resolves `fvar`/`mvar` against the context). Handles Lean 4-only `.lit`→`LeanLitNat/Str`, `.proj`→`LeanProj`, transparent `.mdata`; `let` unfolded (`expand_let`). Build-time golden `#eval` tests on closed terms + fvar/mvar structure checks. No Mathematica, no mathlib.
-4. ⏳ **Transport** — Lean side ✅ (`Mathematica/Tactic.lean`: `Transport` abstraction, `pythonClient`, `mockTransport`, `executeRaw`/`executeAndEval`) + `wolfram/client.py`. A *live* round-trip still needs the ported `.wl` server (step 7).
+4. ✅ **Transport** — `Mathematica/Tactic.lean`: `Transport` abstraction with `wolframScript` (fresh `wolframscript -code`, **live-validated**), `pythonClient` (socket, via `wolfram/server.wl` + `wolfram/client.py`), and `mockTransport`. Framing is per-transport; `executeRaw`/`executeAndEval` are transport-agnostic.
 5. ⏳ **Rule infra (extensibility)** — DEFERRED. The engine currently uses a built-in rule table; porting Lean 3's `@[user_attribute]` caches to env-extensions + attributes (so users can tag their own rules) is a follow-up. The dispatcher is structured so this is a later drop-in.
 6. ✅ **Unreflection + rules** — `Mathematica/Unreflect.lean` (name/level/binderInfo leaves) + `Mathematica/Translate.lean` (`exprOfMMExpr : MMExpr → MetaM Expr`): raw unreflection, semantic rules via `mkAppM`, `MetaM` binder telescopes. Build-time `#eval` tests over closed terms. `mmexpr_pi_to_expr` bug (built `lam`) fixed → `forallE`.
-7. **`LeanForm.wl`**: port patterns to mathlib4 names + `OfNat` numerals.
+7. ✅ **`lean_form.wl`** — ported to mathlib4 names (`HAdd.hAdd`/`LT.lt`/`Eq`/…, with the extra heterogeneous type args) + native `OfNat`/`LeanLitNat` numerals (no `bit0`/`bit1`). Structure pinned against `formatExpr` output; unit-tested with `lean_form_test.wls` (10 assertions) and live round-trips. `server.wl` + `wolfram/README.md` added.
 8. ✅ **User tactics** — `runCommandOn`/`runCommandOn2`/`runCommandOnList`/`runCommandOnUsing`/`loadFile` (port of `run_command_on*`), mock-kernel end-to-end tested. A `tactic`/`elab` wrapper + live `Simplify`/`Solve` demo come with the `.wl` side (step 7).
 9. **Efficiency pass + native-socket transport** (optional).
 

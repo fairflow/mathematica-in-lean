@@ -47,13 +47,17 @@ def stripNewline (s : String) : String :=
     and whether to evaluate in the global (persistent) context, return the raw
     wire response. -/
 structure Transport where
-  send : (payload : String) → (global : Bool) → IO String
+  /-- Given a raw Mathematica command and whether to use the global (persistent)
+      context, return the raw wire response (already `OutputFormat`-serialised).
+      Any protocol framing is the transport's own concern. -/
+  send : (cmd : String) → (global : Bool) → IO String
 
-/-- The Lean 3 mechanism: shell out to the Python client, which relays the payload
-    to a running server over a socket and prints the response.  Long payloads
-    (≥ 2040 chars) go via a temp file (`-f`), matching Lean 3. -/
+/-- The Lean 3 mechanism: shell out to the Python client, which relays the
+    `&!`-terminated payload to a running server over a socket and prints the
+    response.  Long payloads (≥ 2040 chars) go via a temp file (`-f`). -/
 def Transport.pythonClient (clientPath : String) (python : String := "python3") : Transport :=
-  { send := fun payload global => do
+  { send := fun cmd global => do
+      let payload := escapeTerm cmd ++ "&!"
       let gArgs := if global then #["-g"] else #[]
       let out ←
         if payload.length < 2040 then
@@ -73,6 +77,19 @@ def Transport.fromEnv : IO Transport := do
   let path := (← IO.getEnv "MATHEMATICA_BRIDGE_CLIENT").getD "wolfram/client.py"
   return Transport.pythonClient path
 
+/-- A socket-free transport: run `wolframscript -code` per command, loading
+    `lean_form.wl` and printing `OutputFormat[cmd]`.  A fresh kernel per call
+    (slower, but no persistent server) — the simplest way to talk to a kernel,
+    and how `.wl` is run locally.  `global` is ignored (no persistent context). -/
+def Transport.wolframScript (wolframscript leanFormPath : String) : Transport :=
+  { send := fun cmd _global => do
+      -- the final expression is the wire string, which wolframscript prints as-is
+      let code := "Get[\"" ++ leanFormPath ++ "\"]; OutputFormat[" ++ cmd ++ "]"
+      let out ← IO.Process.output { cmd := wolframscript, args := #["-code", code] }
+      if out.exitCode != 0 then
+        throw (IO.userError s!"wolframscript exited with code {out.exitCode}: {out.stderr}")
+      return out.stdout }   -- trailing newline is tolerated by Wire.parse
+
 /-- A test transport that returns a fixed response, ignoring the payload — lets us
     exercise the full reflect → send → parse → translate path with no kernel. -/
 def mockTransport (response : String) : Transport :=
@@ -82,7 +99,7 @@ def mockTransport (response : String) : Transport :=
 
 /-- Send `cmd` to Mathematica, return the raw wire response (port of `execute`). -/
 def executeRaw (t : Transport) (cmd : String) (global : Bool := false) : IO String :=
-  t.send (escapeTerm cmd ++ "&!") global
+  t.send cmd global
 
 /-- Send `cmd`, parse the response into an `MMExpr` (port of `execute_and_eval`). -/
 def executeAndEval (t : Transport) (cmd : String) (global : Bool := false) : IO MMExpr := do
