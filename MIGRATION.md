@@ -1,12 +1,16 @@
 # Lean 3 → Lean 4 Migration Map — MM-Lean Bridge
 
-Status: **phases 1–2a landed; phase 3 underway.** Wire protocol + reflection
-(`Expr → String`, `MetaM`) done and tested. Phase 3 has integrated **mathlib4 +
-Qq** (deps fetched, 8k+ oleans cached) and ported the **unreflection leaves**
-(`Mathematica/Unreflect.lean`: name / level / binderInfo, `MMExpr → Except _`).
-Still to do in phase 3: the rule-database engine (env extensions), the
-`MMExpr → MetaM Expr` core + Qq rules + `MetaM` binder telescopes, then
-`lean_form.m`. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
+Status: **phases 1–3 (translation core) landed.** Wire protocol, reflection
+(`Expr → String`), unreflection leaves, and the **`MMExpr → MetaM Expr`
+translation engine** (`Mathematica/Translate.lean`) are ported and build clean
+on Lean 4 `v4.31.0` with build-time tests. The engine covers raw unreflection
+(`LeanConst`/`App`/`Lambda`/`Pi`/…), semantic rules (`Plus`/`Times`/`Power`/
+`Equal`/`Less`/`And`/`Or`/`Not`/`Implies`/`List`/…) via `mkAppM` (chosen over Qq
+— it infers implicits + synthesises instances directly), and `MetaM` binder
+telescopes (`Function`/`ForAll`/`ForAllTyped`/`Exists`). Remaining: rule
+*extensibility* via env-extensions+attributes (currently a built-in table), the
+user-facing tactics + transport, `lean_form.m` → mathlib4, and type-polymorphic
+numerals. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.
 
 This document maps every component to its Lean 4 equivalent, flags the structural
@@ -250,8 +254,8 @@ server under a v14 kernel via `wolframscript`.
 2. ✅ **Wire + MMExpr** — `Mathematica/MMExpr.lean` (`MMExpr`, `MFloat`, `format`, `toWire`) + `Mathematica/Wire.lean` (hand-rolled `List Char` recursive-descent parser + `preprocess`). Build-time `#guard` round-trip tests pass, no Mathematica kernel needed. Parsec/`String.Iterator` rewrite deferred to the efficiency pass (§9).
 3. ✅ **Reflection** — `Mathematica/Reflect.lean`: `formatName` / `formatLevel` / `formatBinderInfo` / `formatExpr` (`Expr → String`) in `MetaM` (resolves `fvar`/`mvar` against the context). Handles Lean 4-only `.lit`→`LeanLitNat/Str`, `.proj`→`LeanProj`, transparent `.mdata`; `let` unfolded (`expand_let`). Build-time golden `#eval` tests on closed terms + fvar/mvar structure checks. No Mathematica, no mathlib.
 4. **Transport** (`execute` + `.wl` server + client): get a live round-trip echoing through Mathematica 14. Prove the socket path end-to-end before translation.
-5. **Rule infra**: env extensions + attributes + `evalConst` loader (§6).
-6. **Unreflection + rules**: `MMExpr → MetaM Expr`, binder rules via telescopes (§7), Qq rule bodies, mathlib4 names.
+5. ⏳ **Rule infra (extensibility)** — DEFERRED. The engine currently uses a built-in rule table; porting Lean 3's `@[user_attribute]` caches to env-extensions + attributes (so users can tag their own rules) is a follow-up. The dispatcher is structured so this is a later drop-in.
+6. ✅ **Unreflection + rules** — `Mathematica/Unreflect.lean` (name/level/binderInfo leaves) + `Mathematica/Translate.lean` (`exprOfMMExpr : MMExpr → MetaM Expr`): raw unreflection, semantic rules via `mkAppM`, `MetaM` binder telescopes. Build-time `#eval` tests over closed terms. `mmexpr_pi_to_expr` bug (built `lam`) fixed → `forallE`.
 7. **`LeanForm.wl`**: port patterns to mathlib4 names + `OfNat` numerals.
 8. **User tactics**: `run_command_on*`, `load_file`; end-to-end examples (a `Simplify`/`Solve` demo).
 9. **Efficiency pass + native-socket transport** (optional).
