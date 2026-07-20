@@ -1,0 +1,15 @@
+# Lean 4 port of the MM-Lean bridge (see MIGRATION.md).
+#
+# Phase 1 is intentionally dependency-free: the wire parser (`Mathematica.Wire`)
+# and AST (`Mathematica.MMExpr`) are pure Lean-core, so this builds offline in
+# seconds and is unit-testable without a Mathematica kernel. mathlib + Qq are
+# added with the translation/reflection layer (MIGRATION.md §5–§7).
+name = "mathematica"
+version = "0.1.0"
+defaultTargets = ["Mathematica"]
+
+[leanOptions]
+autoImplicit = false          # match the house style of the sibling Lean 4 projects
+
+[[lean_lib]]
+name = "Mathematica"

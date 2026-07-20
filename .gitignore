@@ -1,0 +1,5 @@
+# Lake build artifacts (oleans, fetched deps, IR)
+/.lake/
+
+# macOS
+.DS_Store
