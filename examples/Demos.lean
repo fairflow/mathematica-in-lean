@@ -46,4 +46,8 @@ run_cmd do
 #eval (mathematica% "Prime[100]" : Nat)     -- ⇒ 541
 #eval (mathematica% "GCD[126, 84]" : Nat)   -- ⇒ 42
 
+-- Graphics in the infoview (open this file in the Lean infoview to see the plots).
+#mathematica_plot "Plot[Sin[x], {x, 0, 2 Pi}]"
+#mathematica_plot "Plot3D[Sin[x y], {x, 0, 3}, {y, 0, 3}]"
+
 #print axioms pythagorean

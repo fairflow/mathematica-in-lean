@@ -8,7 +8,11 @@ drives a **persistent `WolframKernel`** directly over stdin/stdout
 proves goals via the kernel, validated on non-trivial theorems — the Pythagorean
 identity `sin²x + cos²x = 1`, binomial expansion, difference of squares
 (`examples/Demos.lean`) — and `evalMathematica` brings computed values back
-(`Prime[100] ⇝ 541`). Full usage + under-the-hood: `USER_GUIDE.md`. Remaining
+(`Prime[100] ⇝ 541`). Two Lean-4-native features (Rob Lewis's suggestions) are
+in: **embedding syntax** (`mathematica%` term + `#mathematica` command; kernel
+definitions persist across commands) and **infoview graphics**
+(`#mathematica_plot` renders a Mathematica PNG via ProofWidgets). Full usage +
+under-the-hood: `USER_GUIDE.md`. Remaining
 polish: rule extensibility (env-extensions), type-polymorphic numerals, broader
 `lean_form.wl` operator coverage. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.

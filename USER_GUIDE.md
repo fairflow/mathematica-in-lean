@@ -92,6 +92,22 @@ Mathematica program. `mathematica%` is best for closed / numeric results (a free
 Mathematica symbol like `x` has no Lean counterpart); `#mathematica` shows
 Mathematica's own `InputForm`, so it works for symbolic results too.
 
+### Graphics — `#mathematica_plot`
+
+Render a Mathematica graphic in the Lean infoview:
+
+```lean
+#mathematica_plot "Plot[Sin[x], {x, 0, 2 Pi}]"
+#mathematica_plot "Plot3D[Sin[x y], {x, 0, 3}, {y, 0, 3}]"
+```
+
+The (headless) kernel rasterises the graphic to a PNG, base64-encodes it, and the
+bridge shows it as an `<img>` via ProofWidgets (which ships with mathlib — no new
+dependency). Works for anything Mathematica can `Export` to PNG: `Plot`, `Plot3D`,
+`ContourPlot`, `Graphics`, `Histogram`, …. The image appears in the **infoview**
+(VS Code / your Lean editor) at the command; a headless `lean` run just shows the
+alt text.
+
 ### `runCommandOn` — apply a command to a Lean term (the programmatic core)
 
 Reflect `e`, wrap it with a Mathematica command, translate the result back:
@@ -164,6 +180,8 @@ The pieces (all under `Mathematica/`, each with build-time tests):
 | `Unreflect` | MM → Lean | leaf translators for `Name` / `Level` / `BinderInfo` |
 | `Translate` | MM → Lean | `MMExpr → MetaM Expr`: raw unreflection + semantic rules (`Plus→HAdd`, `List`, binders via `MetaM` telescopes). Uses `mkAppM` to infer implicits + synthesise instances (no Qq) |
 | `Tactic` | — | transports, `runCommandOn*`, `evalMathematica`, `mathematica_simp` |
+| `Syntax` | — | `mathematica%` (term) + `#mathematica` (command) — embedding |
+| `Widget` | — | `#mathematica_plot` — a Mathematica graphic in the infoview (ProofWidgets) |
 | `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Mathematica) + `OutputFormat` (Mathematica → wire) |
 
 **Why two-sided translation?** A Lean term is raw: `x + y` is
