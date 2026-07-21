@@ -11,5 +11,6 @@ import Mathematica.Reflect
 import Mathematica.Unreflect
 import Mathematica.Translate
 import Mathematica.Tactic
+import Mathematica.Ring
 import Mathematica.Syntax
 import Mathematica.Widget

@@ -32,6 +32,27 @@ theorem arith : (10 - 3 : Nat) = 7 := by mathematica_simp
 /-- With a variable — Mathematica knows `x + 0 = x`. -/
 theorem add_zero' (x : Nat) : x + 0 = x := by mathematica_simp
 
+/-! ### `mathematica_ring` — certificate mode (SOUND: no `Mathematica.trust`)
+
+`mathematica_ring` uses Mathematica only to *discover* a certificate; Lean's own
+`ring1` / `linear_combination` *checks* it, so the proof is kernel-verified and
+`Mathematica.trust` never enters `#print axioms` (contrast `mathematica_simp`).
+It is the Mathematica analogue of `polyrith`. -/
+
+/-- A pure ring identity — closed by `ring1` after Mathematica confirms it. -/
+theorem binomial_sound (a b : ℝ) : (a + b) ^ 2 = a ^ 2 + 2 * a * b + b ^ 2 := by
+  mathematica_ring
+
+/-- Uses a hypothesis — Mathematica finds the multiplier `(x + y + 1)`, and
+    `linear_combination` verifies it.  Plain `ring` CANNOT prove this (it needs
+    `h`); `mathematica_ring` can, and soundly. -/
+theorem with_hyp (x y : ℝ) (h : x = y + 1) : x ^ 2 = y ^ 2 + 2 * y + 1 := by
+  mathematica_ring
+
+-- The soundness payoff: only the standard mathlib axioms, no `Mathematica.trust`.
+#print axioms binomial_sound   -- [propext, Classical.choice, Quot.sound]
+#print axioms with_hyp         -- [propext, Classical.choice, Quot.sound]
+
 -- Raw evaluation: compute a value in Mathematica and bring it back as a Lean term.
 run_cmd do
   let e ← Lean.Elab.Command.liftTermElabM do

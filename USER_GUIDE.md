@@ -60,6 +60,36 @@ example (x : ℝ)     : (x + 1) * (x - 1) = x ^ 2 - 1           := by mathematic
 example (n : Nat)   : n + 0 = n                                := by mathematica_simp
 ```
 
+### `mathematica_ring` — prove a goal *soundly* (no trust axiom)
+
+`mathematica_simp` trusts Mathematica (its proofs carry the `Mathematica.trust`
+axiom). `mathematica_ring` does **not**: Mathematica only *finds* a certificate,
+and Lean's own `ring1` / `linear_combination` *checks* it — so the proof is
+kernel-verified and `#print axioms` stays clean. It's the Mathematica analogue of
+mathlib's `polyrith`.
+
+```lean
+-- pure ring identity — Mathematica confirms, `ring1` closes it
+example (a b : ℝ) : (a + b) ^ 2 = a ^ 2 + 2 * a * b + b ^ 2 := by mathematica_ring
+
+-- needs a hypothesis — Mathematica finds the multiplier (x + y + 1),
+-- `linear_combination` verifies it.  Plain `ring` cannot do this.
+example (x y : ℝ) (h : x = y + 1) : x ^ 2 = y ^ 2 + 2 * y + 1 := by mathematica_ring
+```
+
+For a goal `a = b` with equality hypotheses `hᵢ : pᵢ = qᵢ` in context, it asks
+Mathematica's `PolynomialReduce` for coefficients `cᵢ` with
+`a - b = Σ cᵢ (pᵢ - qᵢ)`, then closes with `linear_combination Σ cᵢ * hᵢ` (or
+`ring1` when there are no hypotheses). Use it over a **commutative ring** — best a
+field (ℝ, ℚ), since the coefficients may be rational. If Mathematica can't reduce
+the goal to a ring identity (e.g. it's a trig identity, or simply false) it says
+so and suggests `mathematica_simp`.
+
+**`mathematica_simp` vs `mathematica_ring`:** reach for `mathematica_ring` whenever
+the goal is an algebraic equality — you get a real, axiom-free proof. Fall back to
+`mathematica_simp` for goals outside `ring`'s theory (trig, transcendental,
+inequalities), accepting the trust axiom.
+
 ### `evalMathematica` — compute a value
 
 Run any Mathematica command and bring the result back as a Lean term:
@@ -180,6 +210,7 @@ The pieces (all under `Mathematica/`, each with build-time tests):
 | `Unreflect` | MM → Lean | leaf translators for `Name` / `Level` / `BinderInfo` |
 | `Translate` | MM → Lean | `MMExpr → MetaM Expr`: raw unreflection + semantic rules (`Plus→HAdd`, `List`, binders via `MetaM` telescopes). Uses `mkAppM` to infer implicits + synthesise instances (no Qq) |
 | `Tactic` | — | transports, `runCommandOn*`, `evalMathematica`, `mathematica_simp` |
+| `Ring` | — | `mathematica_ring` — sound certificate mode: Mathematica finds a `PolynomialReduce` certificate, `ring1`/`linear_combination` checks it (no trust axiom) |
 | `Syntax` | — | `mathematica%` (term) + `#mathematica` (command) — embedding |
 | `Widget` | — | `#mathematica_plot` — a Mathematica graphic in the infoview (ProofWidgets) |
 | `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Mathematica) + `OutputFormat` (Mathematica → wire) |
@@ -230,7 +261,8 @@ unit-tests the `.wl` rules against captured reflected forms.
 ## 7. Limitations
 
 - **Trust:** `mathematica_simp` trusts Mathematica (`Mathematica.trust` in
-  `#print axioms`) — not for verified proofs.
+  `#print axioms`) — not for verified proofs. Prefer **`mathematica_ring`** for
+  algebraic equalities: it produces a genuinely checked, axiom-free proof.
 - **Operator coverage** in `lean_form.wl` is the common arithmetic/logic/relational
   set + `Real.sin/cos/tan/pi`; extend as in §6.
 - **Numerals** come back typed as the simplification produces them (usually
