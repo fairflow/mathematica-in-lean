@@ -1,99 +1,87 @@
 /-
 Transport + user-facing entry points: run a Mathematica command on Lean term(s).
 Port of `execute` / `execute_and_eval` / `run_command_on*` / `load_file` from the
-Lean 3 `mathematica.lean`, plus `escape_term` / `escape_quotes` / `escape_slash` /
-`strip_newline` from `mathematica_parser.lean`.
+Lean 3 `mathematica.lean`.
 
-The kernel connection is abstracted behind `Transport`, so the Lean 3 mechanism
-(shell out to `python3 client2.py`, which relays over a socket to a running
-`server2.m`) — kept as the day-one default — can later be swapped for a native
-socket without touching the reflection/translation pipeline.  `mockTransport`
-returns a canned response, letting us test the whole Lean-side round-trip
-(reflect → send → parse → translate) with no live Mathematica kernel.
+Lean reaches a Mathematica kernel through a `Transport`.  The default,
+`Transport.persistentKernel`, spawns one long-lived `WolframKernel` and drives it
+over stdin/stdout — **no Python and no socket server**.  (The Lean 3 design shelled
+out to a Python client relaying over a socket to a `server2.m`; that whole layer is
+gone — `IO.Process` gives Lean a persistent kernel directly, and a mutex makes it
+safe under Lean's parallel elaboration.)  `mockTransport` returns a canned response
+for kernel-free testing.
 
-This ties the pipeline together:
+Pipeline:
   Expr --formatExpr--> string --(Transport)--> wire --Wire.parse--> MMExpr --exprOfMMExpr--> Expr
 -/
 import Mathematica.Reflect
 import Mathematica.Translate
 import Mathematica.Wire
+import Std.Sync.Mutex
 
 open Lean Lean.Meta
 
 namespace Mathematica
 
-/-! ### String escaping (protocol plumbing) -/
+/-! ### String escaping -/
 
-/-- `&` → `&&`.  A command is `&!`-terminated on the wire, so literal `&` must be
-    doubled (the server undoes it).  Port of `escape_term`. -/
-def escapeTerm (s : String) : String :=
-  s.foldl (fun acc c => if c == '&' then acc ++ "&&" else acc.push c) ""
-
-/-- `"` → `\"`, for embedding in a Mathematica string (port of `escape_quotes`). -/
-def escapeQuotes (s : String) : String :=
-  s.foldl (fun acc c => if c == '"' then acc ++ "\\\"" else acc.push c) ""
-
-/-- `\` → `\\` (port of `escape_slash`). -/
+/-- `\` → `\\` (port of `escape_slash`); used when embedding a path in a command. -/
 def escapeSlash (s : String) : String :=
   s.foldl (fun acc c => if c == '\\' then acc ++ "\\\\" else acc.push c) ""
 
-/-- Drop a single trailing newline (port of `strip_newline`). -/
-def stripNewline (s : String) : String :=
-  if s.endsWith "\n" then String.ofList s.toList.dropLast else s
-
 /-! ### Transport -/
 
-/-- How to talk to a Mathematica kernel: given a prepared, `&!`-terminated payload
-    and whether to evaluate in the global (persistent) context, return the raw
-    wire response. -/
+/-- How Lean reaches a Mathematica kernel: given a Mathematica command, return the
+    raw `OutputFormat`-serialised wire response.  `global` requests the persistent
+    context (only `persistentKernel` distinguishes it). -/
 structure Transport where
-  /-- Given a raw Mathematica command and whether to use the global (persistent)
-      context, return the raw wire response (already `OutputFormat`-serialised).
-      Any protocol framing is the transport's own concern. -/
   send : (cmd : String) → (global : Bool) → IO String
 
-/-- The Lean 3 mechanism: shell out to the Python client, which relays the
-    `&!`-terminated payload to a running server over a socket and prints the
-    response.  Long payloads (≥ 2040 chars) go via a temp file (`-f`). -/
-def Transport.pythonClient (clientPath : String) (python : String := "python3") : Transport :=
-  { send := fun cmd global => do
-      let payload := escapeTerm cmd ++ "&!"
-      let gArgs := if global then #["-g"] else #[]
-      let out ←
-        if payload.length < 2040 then
-          IO.Process.output { cmd := python, args := #[clientPath] ++ gArgs ++ #[payload] }
-        else do
-          let tmpDir := (← IO.getEnv "TMPDIR").getD "/tmp"
-          let tmp := System.FilePath.mk (tmpDir ++ "/mathematica_bridge_exch.txt")
-          IO.FS.writeFile tmp payload
-          IO.Process.output { cmd := python, args := #[clientPath] ++ gArgs ++ #["-f", tmp.toString] }
-      if out.exitCode != 0 then
-        throw (IO.userError s!"mathematica client exited with code {out.exitCode}: {out.stderr}")
-      return out.stdout }
+/-- A test transport returning a fixed response, ignoring the command — exercises
+    the full reflect → send → parse → translate path with no kernel. -/
+def mockTransport (response : String) : Transport :=
+  { send := fun _ _ => pure response }
 
-/-- Read the client path from `MATHEMATICA_BRIDGE_CLIENT`, else a repo-relative
-    default. -/
-def Transport.fromEnv : IO Transport := do
-  let path := (← IO.getEnv "MATHEMATICA_BRIDGE_CLIENT").getD "wolfram/client.py"
-  return Transport.pythonClient path
-
-/-- A socket-free transport: run `wolframscript -code` per command, loading
-    `lean_form.wl` and printing `OutputFormat[cmd]`.  A fresh kernel per call
-    (slower, but no persistent server) — the simplest way to talk to a kernel,
-    and how `.wl` is run locally.  `global` is ignored (no persistent context). -/
+/-- Stateless transport: a fresh `wolframscript -code` per call, loading
+    `lean_form.wl` and printing `OutputFormat[cmd]`.  Simple, but spawns a kernel
+    per call (slower; parallel calls can exceed a concurrent-kernel license limit).
+    `global` is ignored. -/
 def Transport.wolframScript (wolframscript leanFormPath : String) : Transport :=
   { send := fun cmd _global => do
-      -- the final expression is the wire string, which wolframscript prints as-is
       let code := "Get[\"" ++ leanFormPath ++ "\"]; OutputFormat[" ++ cmd ++ "]"
       let out ← IO.Process.output { cmd := wolframscript, args := #["-code", code] }
       if out.exitCode != 0 then
         throw (IO.userError s!"wolframscript exited with code {out.exitCode}: {out.stderr}")
       return out.stdout }   -- trailing newline is tolerated by Wire.parse
 
-/-- A test transport that returns a fixed response, ignoring the payload — lets us
-    exercise the full reflect → send → parse → translate path with no kernel. -/
-def mockTransport (response : String) : Transport :=
-  { send := fun _ _ => pure response }
+/-- Read a persistent kernel's stdout until the `<MME>` end-marker, returning the
+    payload between `<MMS>` and `<MME>` (any pre-marker echo is discarded). -/
+private partial def readUntilMarker (h : IO.FS.Handle) (acc : String) : IO String := do
+  let line ← h.getLine
+  if line.isEmpty then throw (IO.userError "WolframKernel closed its output unexpectedly")
+  let acc := acc ++ line
+  if (acc.splitOn "<MME>").length > 1 then
+    return (((acc.splitOn "<MMS>").getLast!).splitOn "<MME>").head!
+  else readUntilMarker h acc
+
+/-- Persistent transport (the default; the reason no Python is needed): spawn one
+    long-lived `WolframKernel -noprompt`, load `lean_form.wl` once, and drive it over
+    stdin/stdout.  Each command asks the kernel to print `<MMS>…wire…<MME>`; a mutex
+    serialises access so Lean's parallel elaboration is safe.  One kernel ⇒ one
+    license checkout and no per-call startup. -/
+def Transport.persistentKernel (kernelPath leanFormPath : String) : IO Transport := do
+  let child ← IO.Process.spawn
+    { cmd := kernelPath, args := #["-noprompt"],
+      stdin := .piped, stdout := .piped, stderr := .null }
+  let hin := child.stdin
+  let hout := child.stdout
+  hin.putStr ("Get[\"" ++ leanFormPath ++ "\"];\n")
+  hin.flush
+  let lock ← Std.Mutex.new ()
+  return { send := fun cmd _global => lock.atomically do
+    hin.putStr ("WriteString[\"stdout\",\"<MMS>\"<>OutputFormat[" ++ cmd ++ "]<>\"<MME>\\n\"]\n")
+    hin.flush
+    readUntilMarker hout "" }
 
 /-! ### Execute -/
 
@@ -139,10 +127,28 @@ def runCommandOnUsing (t : Transport) (cmd : String → String) (e : Expr) (sear
   let getCmd := escapeSlash (mkGetCmd searchDir path)
   runCommandOn t (fun s => getCmd ++ cmd s) e
 
+/-- `runCommandOn2` but importing `path` first (port of `run_command_on_2_using`). -/
+def runCommandOn2Using (t : Transport) (cmd : String → String → String) (e₁ e₂ : Expr)
+    (searchDir path : String) : MetaM Expr :=
+  let getCmd := escapeSlash (mkGetCmd searchDir path)
+  runCommandOn2 t (fun s₁ s₂ => getCmd ++ cmd s₁ s₂) e₁ e₂
+
+/-- `runCommandOnList` but importing `path` first (port of `run_command_on_list_using`). -/
+def runCommandOnListUsing (t : Transport) (cmd : String → String) (es : List Expr)
+    (searchDir path : String) : MetaM Expr :=
+  let getCmd := escapeSlash (mkGetCmd searchDir path)
+  runCommandOnList t (fun s => getCmd ++ cmd s) es
+
 /-- Load a Mathematica file into the global context (port of `load_file`). -/
 def loadFile (t : Transport) (searchDir path : String) : IO Unit := do
   let _ ← executeRaw t (mkGetCmd searchDir path) (global := true)
   pure ()
+
+/-- Evaluate a *raw* Mathematica command and translate the result to an `Expr` —
+    no Lean input is reflected.  E.g. `evalMathematica t "Prime[100]"` gives the
+    100th prime as a Lean numeral. -/
+def evalMathematica (t : Transport) (cmd : String) : MetaM Expr := do
+  exprOfMMExpr [] (← executeAndEval t cmd)
 
 /-! ### The `mathematica_simp` tactic -/
 
@@ -152,17 +158,27 @@ def loadFile (t : Transport) (searchDir path : String) : IO Unit := do
     not for trusted proofs. -/
 axiom trust {P : Prop} (P' : Prop) (h : P') : P
 
-/-- Build the default transport from the environment:
-    `MATHEMATICA_BRIDGE_WOLFRAMSCRIPT` (path to `wolframscript`; defaults to the
-    standard macOS location) and `MATHEMATICA_BRIDGE_LEANFORM` (absolute path to
-    `wolfram/lean_form.wl`; required). -/
-def defaultTransport : IO Transport := do
-  let ws := (← IO.getEnv "MATHEMATICA_BRIDGE_WOLFRAMSCRIPT").getD
-    "/Applications/Wolfram.app/Contents/MacOS/wolframscript"
-  match ← IO.getEnv "MATHEMATICA_BRIDGE_LEANFORM" with
-  | some lf => return Transport.wolframScript ws lf
-  | none => throw (IO.userError
-      "mathematica_simp: set MATHEMATICA_BRIDGE_LEANFORM to the absolute path of wolfram/lean_form.wl")
+/-- The single persistent kernel, spawned lazily on first use and reused. -/
+initialize kernelRef : IO.Ref (Option Transport) ← IO.mkRef none
+/-- Serialises the lazy spawn of `kernelRef`. -/
+initialize kernelLock : Std.Mutex Unit ← Std.Mutex.new ()
+
+/-- The default transport: one persistent `WolframKernel`, spawned on first use and
+    reused thereafter.  Configure via `MATHEMATICA_BRIDGE_KERNEL` (path to
+    `WolframKernel`; defaults to the standard macOS location) and
+    `MATHEMATICA_BRIDGE_LEANFORM` (absolute path to `wolfram/lean_form.wl`). -/
+def defaultTransport : IO Transport := kernelLock.atomically do
+  match ← kernelRef.get with
+  | some t => return t
+  | none =>
+    let kernel := (← IO.getEnv "MATHEMATICA_BRIDGE_KERNEL").getD
+      "/Applications/Wolfram.app/Contents/MacOS/WolframKernel"
+    let some lf ← IO.getEnv "MATHEMATICA_BRIDGE_LEANFORM"
+      | throw (IO.userError
+          "set MATHEMATICA_BRIDGE_LEANFORM to the absolute path of wolfram/lean_form.wl")
+    let t ← Transport.persistentKernel kernel lf
+    kernelRef.set (some t)
+    return t
 
 open Lean.Elab.Tactic in
 /-- `mathematica_simp` reflects the goal, asks Mathematica to `FullSimplify` it,
@@ -192,10 +208,7 @@ elab "mathematica_simp" : tactic => do
 #eval show MetaM Unit from do
   let assert (lbl : String) (b : Bool) : MetaM Unit := unless b do throwError m!"{lbl}: failed"
   -- pure protocol helpers
-  assert "escapeTerm"   (escapeTerm "a&b&c" == "a&&b&&c")
-  assert "escapeQuotes" (escapeQuotes "say \"hi\"" == "say \\\"hi\\\"")
   assert "escapeSlash"  (escapeSlash "a\\b" == "a\\\\b")
-  assert "stripNewline" (stripNewline "line\n" == "line" && stripNewline "x" == "x")
   assert "mkGetCmd"     (mkGetCmd "/dir" "foo.wl" == "Get[\"foo.wl\",Path->{DirectoryFormat[\"/dir\"]}];")
   -- full round-trip against a mock kernel (no Mathematica needed): the mock
   -- pretends the kernel returned Plus[1,2] regardless of input.

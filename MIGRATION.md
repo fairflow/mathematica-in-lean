@@ -1,18 +1,16 @@
 # Lean 3 → Lean 4 Migration Map — MM-Lean Bridge
 
-Status: **the bridge works end-to-end.** All six Lean modules *and* the
-Mathematica side (`wolfram/lean_form.wl`, `server.wl`, `client.py`) are ported
-and **validated live against a Mathematica kernel** (WolframScript 1.13): Lean
-reflects a term, the kernel evaluates/simplifies it, and the answer translates
-back to a Lean `Expr` — e.g. `1+2 ⇝ 3` (returns `(3 : ℕ)`) and
-`Simplify(x*x) ⇝ x^2` (a genuine symbolic step, local `x` preserved). Two
-transports: `Transport.wolframScript` (fresh `wolframscript -code` per call,
-validated) and `Transport.pythonClient` (persistent socket via `server.wl`).
-A `mathematica_simp` **tactic** proves goals via the kernel (validated:
-`x + 0 = x` proved, trusting the `Mathematica.trust` oracle axiom).
-Remaining polish: rule extensibility (env-extensions), type-polymorphic
-numerals, and broader `lean_form.wl` operator coverage. Target: Lean 4
-(v4.31.0) + mathlib4, Mathematica 14.
+Status: **the bridge works end-to-end, Python-free.** All Lean modules + the
+Mathematica side (`wolfram/lean_form.wl`) are ported and validated live. Lean
+drives a **persistent `WolframKernel`** directly over stdin/stdout
+(`Transport.persistentKernel`, mutex-guarded) — **no Python and no socket server**
+(the Lean 3 `client.py`/`server.wl` are removed). The `mathematica_simp` tactic
+proves goals via the kernel, validated on non-trivial theorems — the Pythagorean
+identity `sin²x + cos²x = 1`, binomial expansion, difference of squares
+(`examples/Demos.lean`) — and `evalMathematica` brings computed values back
+(`Prime[100] ⇝ 541`). Full usage + under-the-hood: `USER_GUIDE.md`. Remaining
+polish: rule extensibility (env-extensions), type-polymorphic numerals, broader
+`lean_form.wl` operator coverage. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.
 
 This document maps every component to its Lean 4 equivalent, flags the structural
@@ -255,11 +253,11 @@ server under a v14 kernel via `wolframscript`.
 1. ✅ **Scaffold** — `lean-toolchain` (v4.31.0), `lakefile.toml`, `Mathematica/` modules, `.gitignore`. mathlib4 + Qq intentionally deferred to the translation layer (phase 1 is dependency-free, builds offline in ~1s). CI still TODO.
 2. ✅ **Wire + MMExpr** — `Mathematica/MMExpr.lean` (`MMExpr`, `MFloat`, `format`, `toWire`) + `Mathematica/Wire.lean` (hand-rolled `List Char` recursive-descent parser + `preprocess`). Build-time `#guard` round-trip tests pass, no Mathematica kernel needed. Parsec/`String.Iterator` rewrite deferred to the efficiency pass (§9).
 3. ✅ **Reflection** — `Mathematica/Reflect.lean`: `formatName` / `formatLevel` / `formatBinderInfo` / `formatExpr` (`Expr → String`) in `MetaM` (resolves `fvar`/`mvar` against the context). Handles Lean 4-only `.lit`→`LeanLitNat/Str`, `.proj`→`LeanProj`, transparent `.mdata`; `let` unfolded (`expand_let`). Build-time golden `#eval` tests on closed terms + fvar/mvar structure checks. No Mathematica, no mathlib.
-4. ✅ **Transport** — `Mathematica/Tactic.lean`: `Transport` abstraction with `wolframScript` (fresh `wolframscript -code`, **live-validated**), `pythonClient` (socket, via `wolfram/server.wl` + `wolfram/client.py`), and `mockTransport`. Framing is per-transport; `executeRaw`/`executeAndEval` are transport-agnostic.
+4. ✅ **Transport** (Python-free) — `Mathematica/Tactic.lean`: `Transport.persistentKernel` (one long-lived `WolframKernel` over stdin/stdout, mutex-guarded, cached in an `initialize` ref — the default), `wolframScript` (stateless per-call), and `mockTransport`. The Lean 3 Python client + socket server are gone. `runCommandOn*`, `evalMathematica`, `loadFile` build on `executeAndEval`.
 5. ⏳ **Rule infra (extensibility)** — DEFERRED. The engine currently uses a built-in rule table; porting Lean 3's `@[user_attribute]` caches to env-extensions + attributes (so users can tag their own rules) is a follow-up. The dispatcher is structured so this is a later drop-in.
 6. ✅ **Unreflection + rules** — `Mathematica/Unreflect.lean` (name/level/binderInfo leaves) + `Mathematica/Translate.lean` (`exprOfMMExpr : MMExpr → MetaM Expr`): raw unreflection, semantic rules via `mkAppM`, `MetaM` binder telescopes. Build-time `#eval` tests over closed terms. `mmexpr_pi_to_expr` bug (built `lam`) fixed → `forallE`.
 7. ✅ **`lean_form.wl`** — ported to mathlib4 names (`HAdd.hAdd`/`LT.lt`/`Eq`/…, with the extra heterogeneous type args) + native `OfNat`/`LeanLitNat` numerals (no `bit0`/`bit1`). Structure pinned against `formatExpr` output; unit-tested with `lean_form_test.wls` (10 assertions) and live round-trips. `server.wl` + `wolfram/README.md` added.
-8. ✅ **User tactics** — `runCommandOn`/`runCommandOn2`/`runCommandOnList`/`runCommandOnUsing`/`loadFile` (port of `run_command_on*`), mock-kernel tested; plus the **`mathematica_simp` tactic** (reflect goal → `FullSimplify` → close if `True`, else replace with the simplified prop), live-validated proving `x + 0 = x`, trusting `Mathematica.trust`. (Parallel elaboration can exceed a Wolfram concurrent-kernel license limit — prefer the socket server for many calls.)
+8. ✅ **User tactics** — the full `runCommandOn*` family + `loadFile` + `evalMathematica` (raw command → `Expr`); plus the **`mathematica_simp` tactic** (reflect goal → `FullSimplify` → close if `True`, else replace with the simplified prop), trusting `Mathematica.trust`. Live-validated on non-trivial goals (`examples/Demos.lean`). The persistent kernel serialises parallel elaboration through one mutex-guarded kernel, so multi-theorem files work without hitting the concurrent-kernel license limit.
 9. **Efficiency pass + native-socket transport** (optional).
 
 Milestone check after step 4: a Lean term reflects out, Mathematica echoes/《LeanForm》s it, and the
