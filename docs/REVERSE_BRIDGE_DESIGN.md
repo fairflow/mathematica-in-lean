@@ -142,9 +142,10 @@ Given the elaborated goal `⊢ P`, try a fixed ladder and report the first succe
    closing the loop: Lean asks Mathematica for a certificate to verify Mathematica.
 
 Everything the pipeline closes yields a real proof term, so the returned axiom set
-is the honest trust story. A goal nothing closes comes back `Unknown` (not a false
-"Refuted"). `Refuted` is reserved for goals whose **negation** the pipeline proves
-(e.g. `decide` on a false decidable prop, or a `norm_num`-refuted numeric claim).
+is the actual trust story — kernel-checked, no oracle. A goal nothing closes comes
+back `Unknown` (not a false "Refuted"). `Refuted` is reserved for goals whose
+**negation** the pipeline proves (e.g. `decide` on a false decidable prop, or a
+`norm_num`-refuted numeric claim).
 
 **Counterexamples (stretch).** For a refuted decidable/finite claim, mathlib's
 `decide`/`Finset` search can sometimes surface a witness; report it via the same
@@ -158,18 +159,41 @@ expression. General counterexample synthesis is out of scope for v1.
   verdict carries the exact `#print axioms` list so the user sees it resting only
   on `propext / Classical.choice / Quot.sound`.
 
-The one honest caveat to surface in the UI: correctness is *modulo the
-translation* — the guarantee is "the Lean proposition `exprOfMMExpr` produced is a
-theorem," and that proposition must faithfully mean what the notebook wrote. The
+The one caveat to surface in the UI: correctness is *modulo the translation* — the
+guarantee is "the Lean proposition `exprOfMMExpr` produced is a theorem," and that
+proposition must faithfully mean what the notebook wrote. The
 default-type and free-symbol wrapping (`∀ x : ℝ`) are part of that contract and
 must be shown to the user (e.g. echo the elaborated Lean statement back). This is
 the reverse-direction analogue of the forward bridge's operator-coverage limit.
 
 ## 7. Phased plan
 
-- **P0 — spike:** `lean-verify` main loop that reads one wire claim, elaborates via
-  `exprOfMMExpr`, runs `ring1`/`decide`, prints a verdict. Drive it by hand with
-  `echo` to prove the stdio path. (Almost all Lean pieces already exist.)
+- **P0 — spike: ✅ built** (`Reverse/LeanVerify.lean`, `lake exe lean_verify`). A
+  stdio loop that imports mathlib **once**, then per line: `Wire.parse` →
+  `exprOfMMExpr` → a core-tactic pipeline → **adds the proof to the kernel** →
+  prints a verdict with the axiom set. Verified live:
+
+  ```text
+  $ lake exe lean_verify   (feeding wire-form claims on stdin)
+  AY[Equal][AY[Plus][I[1],I[1]],I[2]]            ⇒ VERIFIED by=decide axioms=[]
+  AY[Equal][AY[Plus][I[1],I[1]],I[3]]            ⇒ REFUTED  by=¬·decide
+  ∀ n m : ℕ, n + m = m + n   (as wire)           ⇒ VERIFIED by=omega axioms=[propext,Quot.sound]
+  ```
+
+  No `Mathematica.trust` in any axiom set — the reverse direction is sound by
+  construction. **Two findings that shape P1:**
+  1. `importModules` must be called with `loadExts := true` (after
+     `enableInitializersExecution`), or the instance discrimination tree is empty
+     and even `HAdd Nat Nat` fails to synthesise.
+  2. **Imported mathlib `elab` tactics (`ring1`, `norm_num`, `nlinarith`) do not
+     dispatch in a standalone `importModules` process** — the elaborator is found,
+     but its generated quotation-matcher throws `unsupportedSyntax` under the
+     interpreter (and the delaborator can segfault). Only core/builtin tactics
+     (`decide`, `omega`, `rfl`) are reliable here. So P1 must **host the prover
+     inside the real elaboration frontend** (drive a persistent `lean` worker via
+     `Language.process`, or compile the wanted tactic set into the service binary)
+     rather than extend this hand-rolled loop. The same `evalTactic ring1` runs
+     fine under `lean` itself, confirming the frontend is the fix.
 - **P1 — MVP paclet:** `LeanCheck[expr]` with free-symbol → `ForAll[…,ℝ]` wrapping,
   persistent service management, `Verified/Refuted/Unknown` + axiom list. Ships the
   headline demo: verify a Mathematica identity from a notebook.

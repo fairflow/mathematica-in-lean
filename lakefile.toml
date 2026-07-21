@@ -18,3 +18,13 @@ rev = "v4.31.0"
 
 [[lean_lib]]
 name = "Mathematica"
+
+# Reverse bridge (P0 spike): a headless Lean verification service — see
+# docs/REVERSE_BRIDGE_DESIGN.md.  Reads wire-form claims on stdin, verifies them
+# in the kernel, prints verdicts.
+[[lean_lib]]
+name = "Reverse"
+
+[[lean_exe]]
+name = "lean_verify"
+root = "Reverse.LeanVerify"
