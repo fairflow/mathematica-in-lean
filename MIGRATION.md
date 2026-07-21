@@ -8,9 +8,11 @@ back to a Lean `Expr` — e.g. `1+2 ⇝ 3` (returns `(3 : ℕ)`) and
 `Simplify(x*x) ⇝ x^2` (a genuine symbolic step, local `x` preserved). Two
 transports: `Transport.wolframScript` (fresh `wolframscript -code` per call,
 validated) and `Transport.pythonClient` (persistent socket via `server.wl`).
+A `mathematica_simp` **tactic** proves goals via the kernel (validated:
+`x + 0 = x` proved, trusting the `Mathematica.trust` oracle axiom).
 Remaining polish: rule extensibility (env-extensions), type-polymorphic
-numerals, a `tactic`/`elab` wrapper, and broader `lean_form.wl` operator
-coverage. Target: Lean 4 (v4.31.0) + mathlib4, Mathematica 14.
+numerals, and broader `lean_form.wl` operator coverage. Target: Lean 4
+(v4.31.0) + mathlib4, Mathematica 14.
 Working branch: `lean4-port`. Upstream (Lean 3, dormant since 2022): `robertylewis/mathematica`.
 
 This document maps every component to its Lean 4 equivalent, flags the structural
@@ -257,7 +259,7 @@ server under a v14 kernel via `wolframscript`.
 5. ⏳ **Rule infra (extensibility)** — DEFERRED. The engine currently uses a built-in rule table; porting Lean 3's `@[user_attribute]` caches to env-extensions + attributes (so users can tag their own rules) is a follow-up. The dispatcher is structured so this is a later drop-in.
 6. ✅ **Unreflection + rules** — `Mathematica/Unreflect.lean` (name/level/binderInfo leaves) + `Mathematica/Translate.lean` (`exprOfMMExpr : MMExpr → MetaM Expr`): raw unreflection, semantic rules via `mkAppM`, `MetaM` binder telescopes. Build-time `#eval` tests over closed terms. `mmexpr_pi_to_expr` bug (built `lam`) fixed → `forallE`.
 7. ✅ **`lean_form.wl`** — ported to mathlib4 names (`HAdd.hAdd`/`LT.lt`/`Eq`/…, with the extra heterogeneous type args) + native `OfNat`/`LeanLitNat` numerals (no `bit0`/`bit1`). Structure pinned against `formatExpr` output; unit-tested with `lean_form_test.wls` (10 assertions) and live round-trips. `server.wl` + `wolfram/README.md` added.
-8. ✅ **User tactics** — `runCommandOn`/`runCommandOn2`/`runCommandOnList`/`runCommandOnUsing`/`loadFile` (port of `run_command_on*`), mock-kernel end-to-end tested. A `tactic`/`elab` wrapper + live `Simplify`/`Solve` demo come with the `.wl` side (step 7).
+8. ✅ **User tactics** — `runCommandOn`/`runCommandOn2`/`runCommandOnList`/`runCommandOnUsing`/`loadFile` (port of `run_command_on*`), mock-kernel tested; plus the **`mathematica_simp` tactic** (reflect goal → `FullSimplify` → close if `True`, else replace with the simplified prop), live-validated proving `x + 0 = x`, trusting `Mathematica.trust`. (Parallel elaboration can exceed a Wolfram concurrent-kernel license limit — prefer the socket server for many calls.)
 9. **Efficiency pass + native-socket transport** (optional).
 
 Milestone check after step 4: a Lean term reflects out, Mathematica echoes/《LeanForm》s it, and the

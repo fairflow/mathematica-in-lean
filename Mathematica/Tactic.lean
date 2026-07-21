@@ -144,6 +144,49 @@ def loadFile (t : Transport) (searchDir path : String) : IO Unit := do
   let _ ← executeRaw t (mkGetCmd searchDir path) (global := true)
   pure ()
 
+/-! ### The `mathematica_simp` tactic -/
+
+/-- Oracle: trust Mathematica.  From a proof of `P'` (the kernel's simplification
+    of the goal `P`) conclude `P`.  This is logically **unsound** in general — it
+    trusts an external kernel — and appears in `#print axioms`.  For exploration,
+    not for trusted proofs. -/
+axiom trust {P : Prop} (P' : Prop) (h : P') : P
+
+/-- Build the default transport from the environment:
+    `MATHEMATICA_BRIDGE_WOLFRAMSCRIPT` (path to `wolframscript`; defaults to the
+    standard macOS location) and `MATHEMATICA_BRIDGE_LEANFORM` (absolute path to
+    `wolfram/lean_form.wl`; required). -/
+def defaultTransport : IO Transport := do
+  let ws := (← IO.getEnv "MATHEMATICA_BRIDGE_WOLFRAMSCRIPT").getD
+    "/Applications/Wolfram.app/Contents/MacOS/wolframscript"
+  match ← IO.getEnv "MATHEMATICA_BRIDGE_LEANFORM" with
+  | some lf => return Transport.wolframScript ws lf
+  | none => throw (IO.userError
+      "mathematica_simp: set MATHEMATICA_BRIDGE_LEANFORM to the absolute path of wolfram/lean_form.wl")
+
+open Lean.Elab.Tactic in
+/-- `mathematica_simp` reflects the goal, asks Mathematica to `FullSimplify` it,
+    and replaces the goal with the resulting proposition — closing it outright if
+    Mathematica returns `True`.  Trusts the kernel via the `Mathematica.trust`
+    oracle axiom (see `#print axioms`).  Configure the kernel via the
+    `MATHEMATICA_BRIDGE_*` environment variables (see `defaultTransport`). -/
+elab "mathematica_simp" : tactic => do
+  let goal ← getMainGoal
+  let goalType ← goal.getType
+  unless ← isProp goalType do
+    throwError "mathematica_simp: the goal is not a proposition"
+  let t ← defaultTransport
+  let simplified ← runCommandOn t (fun s => "Activate[LeanForm[" ++ s ++ "]] // FullSimplify") goalType
+  unless ← isProp simplified do
+    throwError m!"mathematica_simp: Mathematica's result is not a proposition:{indentExpr simplified}"
+  if ← isDefEq simplified (mkConst ``True) then
+    goal.assign (mkApp3 (mkConst ``trust) goalType (mkConst ``True) (mkConst ``True.intro))
+    replaceMainGoal []
+  else
+    let newGoal ← mkFreshExprMVar simplified
+    goal.assign (mkApp3 (mkConst ``trust) goalType simplified newGoal)
+    replaceMainGoal [newGoal.mvarId!]
+
 /-! ## Tests -/
 
 #eval show MetaM Unit from do

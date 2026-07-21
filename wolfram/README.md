@@ -30,6 +30,26 @@ Start the server once, **from this directory**:
 then use `Transport.pythonClient "wolfram/client.py"` (or set
 `MATHEMATICA_BRIDGE_CLIENT` and use `Transport.fromEnv`).
 
+## `mathematica_simp` tactic
+
+`import Mathematica` gives a tactic that reflects the goal, `FullSimplify`s it in
+Mathematica, and closes the goal if the kernel returns `True` (else replaces it
+with the simplified proposition). It trusts the kernel via the `Mathematica.trust`
+oracle axiom — visible in `#print axioms`, logically unsound, for exploration.
+
+```lean
+theorem xplus0 (x : Nat) : x + 0 = x := by mathematica_simp   -- kernel: x+0 ⇝ x ⇝ True
+```
+
+Configure via `MATHEMATICA_BRIDGE_WOLFRAMSCRIPT` and `MATHEMATICA_BRIDGE_LEANFORM`
+(absolute path to `lean_form.wl`).
+
+**Concurrency note:** `Transport.wolframScript` spawns a fresh kernel per call,
+and Lean elaborates top-level declarations *in parallel* — so proving several
+theorems in one file launches several kernels at once, which can exceed a Wolfram
+license's concurrent-kernel limit. For many calls, prefer the persistent socket
+server (`Transport.pythonClient`), which serialises through one kernel.
+
 ## How it fits together
 
 ```
