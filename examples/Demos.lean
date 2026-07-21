@@ -39,4 +39,11 @@ run_cmd do
     evalMathematica t "Prime[100]"          -- the 100th prime
   Lean.logInfo m!"Mathematica: Prime[100] = {e}"
 
+-- Embedding Mathematica with custom syntax (Rob Lewis's first suggestion).
+#mathematica "Factor[x^2 - 1]"              -- ⇒ (-1 + x)*(1 + x)
+#mathematica "fib[n_] := Fibonacci[n]"      -- a definition — persists in the kernel
+#mathematica "fib[20]"                      -- ⇒ 6765  (uses the definition above)
+#eval (mathematica% "Prime[100]" : Nat)     -- ⇒ 541
+#eval (mathematica% "GCD[126, 84]" : Nat)   -- ⇒ 42
+
 #print axioms pythagorean

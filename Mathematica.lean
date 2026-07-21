@@ -11,3 +11,4 @@ import Mathematica.Reflect
 import Mathematica.Unreflect
 import Mathematica.Translate
 import Mathematica.Tactic
+import Mathematica.Syntax

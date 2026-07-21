@@ -71,6 +71,27 @@ run_cmd do
   Lean.logInfo m!"{e}"            -- 541
 ```
 
+### Embedding Mathematica — `mathematica%` and `#mathematica`
+
+Two custom-syntax forms let you write Mathematica directly in a Lean file:
+
+```lean
+-- term: pull a computed value into Lean
+#eval (mathematica% "Prime[100]" : Nat)       -- 541
+def mersenne31 : Nat := mathematica% "2^31 - 1"
+
+-- command: run code at the top level, logging the InputForm result
+#mathematica "Factor[x^2 - 1]"                 -- (-1 + x)*(1 + x)
+#mathematica "fib[n_] := Fibonacci[n]"         -- a definition …
+#mathematica "fib[20]"                         -- … usable later: 6765
+```
+
+Because the bridge is **one long-lived kernel session**, definitions made in one
+`#mathematica` command are visible to later ones — so a file can build up a full
+Mathematica program. `mathematica%` is best for closed / numeric results (a free
+Mathematica symbol like `x` has no Lean counterpart); `#mathematica` shows
+Mathematica's own `InputForm`, so it works for symbolic results too.
+
 ### `runCommandOn` — apply a command to a Lean term (the programmatic core)
 
 Reflect `e`, wrap it with a Mathematica command, translate the result back:
