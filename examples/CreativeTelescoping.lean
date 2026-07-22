@@ -19,6 +19,8 @@ algorithm produces, and richer summands (binomial squares → the C(2n,n) identi
 import Mathlib.Data.Nat.Choose.Sum
 import Mathlib.Algebra.BigOperators.Intervals
 import Mathlib.Tactic.Ring
+import Mathlib.Tactic.FieldSimp
+import Mathlib.Data.Rat.Defs
 
 open Finset
 
@@ -79,8 +81,43 @@ theorem sum_choose (n : ℕ) : S n = 2 ^ n := by
   | zero => simp [S]
   | succ n ih => rw [S_succ, ih]; ring
 
+/-! ### Rung 1 — a *non-trivial* certificate, found by Mathematica, checked by Lean
+
+Target: `∑_{k=0}^{n} C(n,k)² = C(2n,n)` (not a one-line Pascal argument).  For
+`F(n,k) = C(n,k)²`, Zeilberger's recurrence is `(n+1)·S(n+1) = (4n+2)·S(n)`, and the
+**creative-telescoping certificate** (which needs a CAS) is
+
+  Mathematica ⇒   R(n,k) = k²·(2k − 3n − 3) / (n + 1 − k)²
+
+so that `G(n,k) = R(n,k)·F(n,k)` telescopes `(n+1)F(n+1,k) − (4n+2)F(n,k)`.  Dividing
+that certificate identity by `F(n,k)` (using the exact binomial ratios
+`F(n,k+1)/F(n,k) = ((n−k)/(k+1))²` and `F(n+1,k)/F(n,k) = ((n+1)/(n+1−k))²`) turns it
+into a **rational-function identity in n,k** — which Lean discharges by `field_simp;
+ring`.  That is the certificate check, sound and axiom-free: the CAS *found* it, the
+Lean kernel *verifies* it.  (Mathematica independently reported residual 0.)
+
+Summing this over `k` telescopes `G` to the boundary — and `R(n,0) = 0` (the `k²`
+factor) while `F` vanishes past `k = n` — giving the recurrence, whence
+`S(n) = C(2n,n)` by induction.  Building that `Finset`-telescoping glue is L1b (next);
+this file lands the certificate verification, the heart of the pipeline. -/
+
+/-- The WZ certificate for `∑ C(n,k)² = C(2n,n)`, as found by Mathematica. -/
+def Rc (n k : ℚ) : ℚ := k ^ 2 * (2 * k - 3 * n - 3) / (n + 1 - k) ^ 2
+
+/-- **Mathematica's certificate, verified sound in Lean by `field_simp; ring`.**
+    The telescoping identity for `(n+1)S(n+1) = (4n+2)S(n)`, divided by `F(n,k)`. -/
+theorem wz_cert (n k : ℚ) (hk1 : k + 1 ≠ 0) (hnk : n - k ≠ 0) (hnk1 : n + 1 - k ≠ 0) :
+    (n + 1) * ((n + 1) / (n + 1 - k)) ^ 2 - (4 * n + 2)
+      = Rc n (k + 1) * ((n - k) / (k + 1)) ^ 2 - Rc n k := by
+  have hk1' : n + 1 - (k + 1) ≠ 0 := by
+    rw [show n + 1 - (k + 1) = n - k from by ring]; exact hnk
+  unfold Rc
+  field_simp
+  ring
+
 end Mathematica.Telescoping
 
 -- The soundness payoff: the certificate-verified identities carry NO trust axiom.
 #print axioms Mathematica.Telescoping.odd_sum
 #print axioms Mathematica.Telescoping.sum_choose
+#print axioms Mathematica.Telescoping.wz_cert
