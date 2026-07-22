@@ -283,6 +283,35 @@ open Lean Lean.Meta Mathematica
 `wolfram/lean_form_test.wls` (run: `wolframscript -file wolfram/lean_form_test.wls`)
 unit-tests the `.wl` rules against captured reflected forms.
 
+## 6a. The reverse bridge — verifying claims in Lean from Mathematica (`LeanCheck`)
+
+The bridge also runs *the other way*: a Wolfram user can ask Lean to check a claim.
+`wolfram/lean_verify.wl` provides `LeanCheck`, paired with the `lean_verify` service
+(`Reverse/LeanVerify.lean`, an executable that imports mathlib once and verifies
+wire-form claims in the kernel).
+
+```wolfram
+Get["lean_form.wl"]; Get["lean_verify.wl"];      (* load both *)
+$LeanRepoDir = "/path/to/mathematica-in-lean";   (* repo root *)
+
+LeanCheck[1 + 1 == 2]        (* ⇒ "VERIFIED by=decide axioms=[]"                  *)
+LeanCheck[1 + 1 == 3]        (* ⇒ "REFUTED by=not.decide"                          *)
+LeanCheck[n + m == m + n]    (* ⇒ "VERIFIED by=omega axioms=[propext,Quot.sound]"  *)
+LeanCheck[n + 0 == n, "Int"] (* domain option: "Nat" (default), "Int", "Real"      *)
+```
+
+Free symbols are wrapped in `∀ … : domain`; nothing is evaluated Wolfram-side
+(`x+y==y+x` is shipped as a claim, not collapsed to `True`). The verdict is
+**kernel-checked** — the service builds the actual proof term and reports its axioms,
+so a `VERIFIED` with `axioms=[]` or `[propext,Quot.sound]` rests on no trust axiom.
+This is the *sound* direction: Lean's kernel is the trusted party (contrast
+`mathematica_simp`).
+
+Build the service once (`lake build lean_verify`). **Current scope:** the P0/P1 prover
+uses core/builtin tactics (`decide`, `omega`, `rfl`), so it covers the
+decidable / linear-arithmetic fragment over `Nat`/`Int`. Ring identities over `Real`
+need the richer, frontend-hosted prover (see `docs/REVERSE_BRIDGE_DESIGN.md`).
+
 ## 7. Limitations
 
 - **Trust:** `mathematica_simp` trusts Mathematica (`Mathematica.trust` in

@@ -95,7 +95,7 @@ def verifyClaim (idx : Nat) (wire : String) : TermElabM Verdict := do
     let notP ← mkAppM ``Not #[P]
     for (nm, tac) in proveTactics do
       if let some _ ← proveWith notP tac then
-        return { status := "REFUTED", detail := s!"by=¬·{nm}" }
+        return { status := "REFUTED", detail := s!"by=not.{nm}" }
     return { status := "UNKNOWN" }
 
 /-- Run a `TermElabM` action against `env`/`state`, returning the value and the

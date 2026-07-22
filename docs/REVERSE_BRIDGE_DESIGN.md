@@ -194,9 +194,24 @@ the reverse-direction analogue of the forward bridge's operator-coverage limit.
      `Language.process`, or compile the wanted tactic set into the service binary)
      rather than extend this hand-rolled loop. The same `evalTactic ring1` runs
      fine under `lean` itself, confirming the frontend is the fix.
-- **P1 — MVP paclet:** `LeanCheck[expr]` with free-symbol → `ForAll[…,ℝ]` wrapping,
-  persistent service management, `Verified/Refuted/Unknown` + axiom list. Ships the
-  headline demo: verify a Mathematica identity from a notebook.
+- **P1 — MVP, driven from Mathematica: ✅ first cut** (`wolfram/lean_verify.wl`).
+  `LeanCheck[claim]` (`HoldFirst`, so `x+y==y+x` isn't collapsed to `True`) detects
+  free `Global`` symbols, wraps them in `∀ … : domain` (default `"Nat"`; `"Int"`,
+  `"Real"` too), serialises via `OutputFormat`, drives `lean_verify`, and returns the
+  verdict. Verified live from a Wolfram session:
+
+  ```
+  LeanCheck[1+1==2]    ⇒ VERIFIED by=decide axioms=[]
+  LeanCheck[1+1==3]    ⇒ REFUTED  by=not.decide
+  LeanCheck[n+m==m+n]  ⇒ VERIFIED by=omega  axioms=[propext,Quot.sound]
+  ```
+
+  Remaining for a full P1: (a) **persistent** service (this uses one-shot
+  `RunProcess`, paying the mathlib import per call); (b) the prover is still only the
+  core/builtin fragment (`decide`/`omega`/`rfl`) — see finding 2 above, so ring
+  identities over `Real` are out until the prover is frontend-hosted; (c) the
+  numeral-typing limit (a `Real` var plus an integer literal fails translation), so
+  the working domain is really `Nat`/decidable/linear for now.
 - **P2 — coverage:** the full pipeline (§5), `LeanVerify[result, expected]` for
   checking `Integrate`/`Solve` output, domain-type option, elaborated-statement
   echo-back.
