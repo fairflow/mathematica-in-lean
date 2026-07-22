@@ -103,16 +103,21 @@ example (x : ℝ) : (x + 1)^2 = x^2 + 2*x + 1 := by mathematica_rw
 -- rational functions — validated by `field_simp`, which plain `ring` cannot do:
 example (x : ℝ) (h : x - 1 ≠ 0) : (x^2 - 1)/(x - 1) = x + 1 := by mathematica_rw
 example : (2^10 : ℝ) = 1024 := by mathematica_rw
+-- a subterm buried inside a larger term is rewritten in place; the rest is untouched:
+example (x : ℝ) (h : x - 1 ≠ 0) : x + (x^2 - 1)/(x - 1) = x + (x + 1) := by mathematica_rw
 mathematica_rw "FullSimplify"   -- any Mathematica command: Factor, Together, …
 ```
 
-It's strictly more than `ring`: it uses whichever validation tactic fits each side,
-and Mathematica can reach a normal form a single Lean tactic wouldn't find (validating
-the *step* is then easy). Mathematica's result is rendered to term syntax and
-elaborated **at the goal's type**, so numerals come back correctly typed (`2`, `1`
-over ℝ, not ℕ). If the two sides simplify but don't validate as equal, it leaves the
-simpler goal `a' = b'`. (v1 handles equality goals and the arithmetic/rational
-fragment; finer subterm decomposition and iteration are the natural next step.)
+**How it works (a fixed-point subterm loop).** It picks a numeric-valued subterm
+(largest first), simplifies it in Mathematica, validates the step, and rewrites *that
+subterm in place* — the navigation is `MVarId.rewrite`/`kabstract`, which abstracts the
+occurrences into the congruence motive. It repeats to a fixed point, then makes a
+best-effort close (`rfl`/`ring1`/`field_simp;ring1`/`norm_num`/`simp`/`decide`/`omega`).
+So it works on any goal with numeric subterms, not just bare equalities, and only ever
+makes a move the kernel can check. Mathematica's result is rendered to term syntax and
+elaborated **at the subterm's type**, so numerals come back correctly typed (`2`, `1`
+over ℝ, not ℕ). It's strictly more than `ring`: each step uses whichever validation
+tactic fits, and Mathematica reaches normal forms a single Lean tactic wouldn't.
 
 ### `evalMathematica` — compute a value
 
@@ -260,7 +265,7 @@ The pieces (all under `Mathematica/`, each with build-time tests):
 | `Translate` | MM → Lean | `MMExpr → MetaM Expr`: raw unreflection + semantic rules (`Plus→HAdd`, `List`, binders via `MetaM` telescopes). Uses `mkAppM` to infer implicits + synthesise instances (no Qq) |
 | `Tactic` | — | transports, `runCommandOn*`, `evalMathematica`, `mathematica_simp` |
 | `Ring` | — | `mathematica_ring` — sound certificate mode: Mathematica finds a `PolynomialReduce` certificate, `ring1`/`linear_combination` checks it (no trust axiom) |
-| `Rewrite` | — | `mathematica_rw` — sound Mathematica-assisted rewriting: simplify each side in Mathematica, validate each step with `ring`/`field_simp`/`norm_num`/`simp` (no trust axiom) |
+| `Rewrite` | — | `mathematica_rw` — sound Mathematica-assisted rewriting: a fixed-point subterm loop (simplify a subterm in Mathematica, validate with `ring`/`field_simp`/`norm_num`/`simp`, rewrite in place via `kabstract`, repeat) — no trust axiom |
 | `Syntax` | — | `mathematica%` (term) + `#mathematica` (command) — embedding |
 | `Widget` | — | `#mathematica_plot` — a Mathematica graphic in the infoview (ProofWidgets) |
 | `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Mathematica) + `OutputFormat` (Mathematica → wire) |

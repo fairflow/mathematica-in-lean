@@ -62,7 +62,12 @@ theorem rw_poly (x : ℝ) : (x + 1) ^ 2 = x ^ 2 + 2 * x + 1 := by mathematica_rw
 /-- A rational function — validated by `field_simp`, which plain `ring` cannot do. -/
 theorem rw_rational (x : ℝ) (h : x - 1 ≠ 0) : (x ^ 2 - 1) / (x - 1) = x + 1 := by mathematica_rw
 theorem rw_numeric : (2 ^ 10 : ℝ) = 1024 := by mathematica_rw
+/-- The fixed-point subterm loop: only the buried `(x²-1)/(x-1)` is rewritten
+    (to `x+1`), the surrounding `x +` untouched, via `kabstract` navigation. -/
+theorem rw_subterm (x : ℝ) (h : x - 1 ≠ 0) :
+    x + (x ^ 2 - 1) / (x - 1) = x + (x + 1) := by mathematica_rw
 #print axioms rw_rational       -- [propext, Classical.choice, Quot.sound]
+#print axioms rw_subterm        -- [propext, Classical.choice, Quot.sound]
 
 -- Raw evaluation: compute a value in Mathematica and bring it back as a Lean term.
 run_cmd do

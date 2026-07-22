@@ -108,32 +108,74 @@ def validateEq (lhs rhs : Expr) : TermElabM (Option Expr) := do
 
 syntax (name := mmRw) "mathematica_rw" (ppSpace str)? : tactic
 
+/-! ### The fixed-point subterm loop
+
+Pick a subterm, simplify it in Mathematica, validate the step, rewrite it in place,
+and repeat until nothing changes.  "Guiding into a subterm" is `MVarId.rewrite`: given
+a proof `sub = sub'` it `kabstract`s the occurrences of `sub` into the congruence
+motive and rewrites — we only choose *which* subterm to try; the kernel does the rest. -/
+
+/-- Data types Mathematica can meaningfully simplify (and the bridge can round-trip).
+    Matched by name against the runtime env, so this module needn't import them. -/
+private def isNumericType (τ : Expr) : MetaM Bool := do
+  let env ← getEnv
+  (([`Nat, `Int, `Rat, `Real] : List Name).filter env.contains).anyM
+    fun n => isDefEq τ (mkConst n)
+
+/-- All application-subterms of `e` (numeric-valued ones are the candidates). -/
+private partial def collectApps : Expr → Array Expr → Array Expr := fun e acc =>
+  let acc := if e.isApp then acc.push e else acc
+  match e with
+  | .app f a         => collectApps a (collectApps f acc)
+  | .lam _ d b _     => collectApps b (collectApps d acc)
+  | .forallE _ d b _ => collectApps b (collectApps d acc)
+  | .letE _ d v b _  => collectApps b (collectApps v (collectApps d acc))
+  | .mdata _ b       => collectApps b acc
+  | .proj _ _ b      => collectApps b acc
+  | _                => acc
+
+/-- Candidate subterms, deduplicated and **largest first** (simplify big chunks before
+    their parts — not aggressively optimal, just a sensible order). -/
+private def candidates (e : Expr) : Array Expr :=
+  ((collectApps e #[]).toList.eraseDups.toArray).qsort
+    (fun a b => a.approxDepth > b.approxDepth)
+
+/-- Try to simplify `sub` in Mathematica, validate the step, and rewrite it into the
+    goal.  Returns whether it made progress.  Sound: only a validated equality is used. -/
+private def tryRewriteSubterm (t : Transport) (cmd : String) (sub : Expr) : TacticM Bool := do
+  let subTy ← inferType sub
+  unless ← isNumericType subTy do return false
+  let some sub' ← mmSimplifyAt t cmd sub subTy | return false
+  if ← isDefEq sub sub' then return false
+  let some pf ← validateEq sub sub' | return false
+  let goal ← getMainGoal
+  try
+    let r ← goal.rewrite (← goal.getType) pf
+    replaceMainGoal ((← goal.replaceTargetEq r.eNew r.eqProof) :: r.mvarIds)
+    return true
+  catch _ => return false
+
+/-- One pass: rewrite the first subterm that makes progress. -/
+private def rwOnePass (t : Transport) (cmd : String) : TacticM Bool := do
+  for sub in candidates (← (← getMainGoal).getType) do
+    if ← tryRewriteSubterm t cmd sub then return true
+  return false
+
 @[tactic mmRw]
 def elabMmRw : Tactic := fun stx => do
   let cmd : String := match stx with
     | `(tactic| mathematica_rw $s:str) => s.getString
     | _ => "Simplify"
-  let goal ← getMainGoal
-  goal.withContext do
-    let some (_, a, b) := (← goal.getType).eq?
-      | throwError "mathematica_rw: expected an equality goal `a = b`"
-    let ty ← inferType a
-    let t ← defaultTransport
-    let some a' ← mmSimplifyAt t cmd a ty
-      | throwError "mathematica_rw: could not render Mathematica's LHS simplification"
-    let some b' ← mmSimplifyAt t cmd b ty
-      | throwError "mathematica_rw: could not render Mathematica's RHS simplification"
-    let some pa ← validateEq a a'
-      | throwError m!"mathematica_rw: could not validate the LHS step:{indentExpr a}\n  ⇝{indentExpr a'}"
-    let some pb ← validateEq b b'
-      | throwError m!"mathematica_rw: could not validate the RHS step:{indentExpr b}\n  ⇝{indentExpr b'}"
-    match ← validateEq a' b' with
-    | some pab =>
-        goal.assign (← mkEqTrans pa (← mkEqTrans pab (← mkEqSymm pb)))
-        replaceMainGoal []
-    | none =>
-        let mv ← mkFreshExprMVar (← mkEq a' b')
-        goal.assign (← mkEqTrans pa (← mkEqTrans mv (← mkEqSymm pb)))
-        replaceMainGoal [mv.mvarId!]
+  let t ← defaultTransport
+  -- fixed-point loop (step-capped for termination)
+  let mut n := 0
+  let mut changed := true
+  while changed && n < 25 do
+    changed ← (← getMainGoal).withContext (rwOnePass t cmd)
+    n := n + 1
+  -- best-effort close of whatever remains
+  try evalTactic (← `(tactic|
+        first | rfl | ring1 | (field_simp; ring1) | norm_num | simp | decide | omega))
+  catch _ => pure ()
 
 end Mathematica
