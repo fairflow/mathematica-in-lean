@@ -138,6 +138,31 @@ dependency). Works for anything Mathematica can `Export` to PNG: `Plot`, `Plot3D
 (VS Code / your Lean editor) at the command; a headless `lean` run just shows the
 alt text.
 
+### Creative telescoping — `WZCert` (finding certificates through the bridge)
+
+`wolfram/lean_form.wl` provides `WZCert[F, n, k]`, a creative-telescoping certificate
+finder (Zeilberger by ansatz — no RISC package needed). Given only a summand it
+solves for the recurrence coefficients *and* the certificate together, returning
+`{a0(n), a1(n), R(n,k)}` such that `a0·F(n,k) + a1·F(n+1,k) = G(n,k+1) − G(n,k)` with
+`G = R·F`. Call it through the bridge:
+
+```lean
+import Mathematica
+#mathematica "WZCert[Function[{a,b}, Binomial[a,b]^2], n, k]"
+-- ⇒ {-2 - 4 n, 1 + n, k^2 (2 k - 3 n - 3)/(n + 1 - k)^2}
+```
+
+So the kernel *finds* the certificate for `∑ C(n,k)² = C(2n,n)` at Lean elaboration
+time. [`examples/CreativeTelescoping.lean`](examples/CreativeTelescoping.lean) then
+*verifies* that same certificate soundly (`field_simp; ring`, telescoping, induction),
+proving the identity end-to-end with **no trust axiom** —
+[`examples/ZeilbergerBridge.lean`](examples/ZeilbergerBridge.lean) shows the discovery
+half live. **What's automated:** the *discovery* (the bridge drives Mathematica to
+find the certificate). **What isn't yet:** turning a fetched certificate into a
+machine-generated Lean proof — that would be a `mathematica_telescope` tactic (parse
+`R`, define the boundary-safe `G`, discharge the per-`k` identity by `field_simp;
+ring`, telescope, induct). Today that assembly is hand-written.
+
 ### `runCommandOn` — apply a command to a Lean term (the programmatic core)
 
 Reflect `e`, wrap it with a Mathematica command, translate the result back:

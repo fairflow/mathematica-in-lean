@@ -38,6 +38,17 @@ assert["OF application", OutputFormat[foo[1, "x"]] === "AY[foo][I[1],T[\"x\"]]"]
 (* a full serialisable answer: Plus[1,2] activated then re-emitted *)
 assert["OF on Plus[1,2]", OutputFormat[Plus[1, 2]] === "I[3]"];
 
+(* ---- WZCert (creative telescoping) ---- *)
+(* NB: the harness uses `n` as its assertion counter, so use x,y as the symbols. *)
+Print["== WZCert =="];
+With[{r = WZCert[Function[{a, b}, Binomial[a, b]], x, y]},
+  assert["WZCert C(x,y): recurrence {-2,1}", {r[[1]], r[[2]]} === {-2, 1}];
+  assert["WZCert C(x,y): certificate", Together[r[[3]] - y/(y - x - 1)] === 0]];
+With[{r = WZCert[Function[{a, b}, Binomial[a, b]^2], x, y]},
+  assert["WZCert C(x,y)^2: recurrence {-(4x+2),x+1}", {Expand[r[[1]]], Expand[r[[2]]]} === {-4 x - 2, x + 1}];
+  assert["WZCert C(x,y)^2: certificate = y^2(2y-3x-3)/(x+1-y)^2",
+    Together[r[[3]] - y^2 (2 y - 3 x - 3)/(x + 1 - y)^2] === 0]];
+
 Print[""];
 Print[If[allOk, "ALL OK (" <> ToString[n] <> " assertions)", "*** FAILURES ***"]];
 If[! allOk, Exit[1]];

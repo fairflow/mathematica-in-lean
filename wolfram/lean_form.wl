@@ -170,3 +170,39 @@ MakeDataUrlFromImage[img_] :=
 
 PlotOverX[f_, {X_, lb_, ub_}] := Module[{nv, re},
   re = f /. X -> nv; Plot[re, {nv, lb, ub}]];
+
+(* ----------------------------------------------------------------- *)
+(* Creative telescoping (Zeilberger by ansatz)                        *)
+(*                                                                    *)
+(* WZCert[F, n, k] finds a first-order recurrence a0(n) F(n,k) +      *)
+(* a1(n) F(n+1,k) = G(n,k+1) - G(n,k) with G = R(n,k) F(n,k), by      *)
+(* undetermined coefficients (no RISC package needed): it solves for  *)
+(* the recurrence coefficients a0,a1 AND the certificate R together   *)
+(* (null space of the linear system), so given only the summand it    *)
+(* returns {a0(n), a1(n), R(n,k)}.  Ratios are taken with             *)
+(* Simplify[FunctionExpand[...]] so binomial terms reduce to rational *)
+(* functions.  Certificate ansatz: cubic-in-k numerator over          *)
+(* (n+1-k)^2, coefficients linear in n (enough for the binomial and   *)
+(* binomial-square sums).                                             *)
+(* ----------------------------------------------------------------- *)
+
+WZCert[Fh_, n_, k_] := Module[
+  {rk, rn, a0, a1, Rf, eq, num, ck, cn, vars, mat, ns, vec,
+   a00, a01, a10, a11, b00, b01, b10, b11, b20, b21, b30, b31},
+  rk = Simplify[FunctionExpand[Fh[n, k + 1]/Fh[n, k]]];
+  rn = Simplify[FunctionExpand[Fh[n + 1, k]/Fh[n, k]]];
+  a0 = a00 + a01 n;  a1 = a10 + a11 n;
+  Rf[j_] := ((b30 + b31 n) j^3 + (b20 + b21 n) j^2 + (b10 + b11 n) j + (b00 + b01 n))/(n + 1 - j)^2;
+  eq  = Together[a0 + a1 rn - (Rf[k + 1] rk - Rf[k])];
+  num = Collect[Numerator[eq], k];
+  vars = {a00, a01, a10, a11, b00, b01, b10, b11, b20, b21, b30, b31};
+  ck = CoefficientList[num, k];
+  cn = Flatten[CoefficientList[#, n] & /@ ck];
+  mat = Normal[CoefficientArrays[cn, vars][[2]]];
+  ns  = NullSpace[mat];
+  If[Length[ns] =!= 1, Return[$Failed]];
+  vec = First[ns];
+  vec = vec * (LCM @@ (Denominator /@ vec));
+  {Expand[a0 /. Thread[vars -> vec]],
+   Expand[a1 /. Thread[vars -> vec]],
+   Together[Rf[k] /. Thread[vars -> vec]]}];
