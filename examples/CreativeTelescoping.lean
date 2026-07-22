@@ -17,9 +17,12 @@ L1 (next) swaps the hand-known certificates here for ones Mathematica's Zeilberg
 algorithm produces, and richer summands (binomial squares → the C(2n,n) identity).
 -/
 import Mathlib.Data.Nat.Choose.Sum
+import Mathlib.Data.Nat.Choose.Central
 import Mathlib.Algebra.BigOperators.Intervals
 import Mathlib.Tactic.Ring
 import Mathlib.Tactic.FieldSimp
+import Mathlib.Tactic.Positivity
+import Mathlib.Tactic.Linarith
 import Mathlib.Data.Rat.Defs
 
 open Finset
@@ -96,10 +99,13 @@ into a **rational-function identity in n,k** — which Lean discharges by `field
 ring`.  That is the certificate check, sound and axiom-free: the CAS *found* it, the
 Lean kernel *verifies* it.  (Mathematica independently reported residual 0.)
 
-Summing this over `k` telescopes `G` to the boundary — and `R(n,0) = 0` (the `k²`
-factor) while `F` vanishes past `k = n` — giving the recurrence, whence
-`S(n) = C(2n,n)` by induction.  Building that `Finset`-telescoping glue is L1b (next);
-this file lands the certificate verification, the heart of the pipeline. -/
+Summing this over `k` telescopes `G` to the boundary, giving the recurrence, whence
+`S(n) = C(2n,n)` by induction.  That telescoping glue is mechanised in the **L1b**
+section below (`sum_choose_sq`), fully and axiom-free.  The one subtlety: `G = R·F`
+has a `/(n+1−k)²` that blows up at `k=n`, which Lean's total division would get wrong.
+Rewriting it via `C(n,k)/(n+1−k) = C(n+1,k)/(n+1)` into the boundary-safe form
+`G(n,k) = k²(2k−3n−3)·C(n+1,k)²/(n+1)²` (denominator never zero) fixes it — exactly the
+kind of care WZ-in-a-proof-assistant demands (cf. the Coq ζ(3) work). -/
 
 /-- The WZ certificate for `∑ C(n,k)² = C(2n,n)`, as found by Mathematica. -/
 def Rc (n k : ℚ) : ℚ := k ^ 2 * (2 * k - 3 * n - 3) / (n + 1 - k) ^ 2
@@ -115,9 +121,91 @@ theorem wz_cert (n k : ℚ) (hk1 : k + 1 ≠ 0) (hnk : n - k ≠ 0) (hnk1 : n + 
   field_simp
   ring
 
+/-! #### L1b — the full pipeline: `∑ C(n,k)² = C(2n,n)`, mechanised from the certificate
+
+`wz_cert` above checks the certificate as a rational identity.  Here we carry it
+through to the closed form: lift it to the actual binomials (via the mathlib ratios
+`choose_mul_succ_eq` and `choose_succ_right_eq`), telescope over `k` with the
+boundary-safe `Gc`, and induct.  `sum_choose_sq` is the end-to-end theorem, axiom-clean. -/
+
+/-- `∑_{k=0}^{n} C(n,k)²`, in ℚ. -/
+def T (n : ℕ) : ℚ := ∑ k ∈ range (n + 1), (n.choose k : ℚ) ^ 2
+
+/-- Boundary-safe certificate `G(n,k) = k²(2k−3n−3)·C(n+1,k)²/(n+1)²`. -/
+def Gc (n k : ℕ) : ℚ :=
+  (k : ℚ) ^ 2 * (2 * (k : ℚ) - 3 * (n : ℚ) - 3) * ((n + 1).choose k : ℚ) ^ 2 / ((n : ℚ) + 1) ^ 2
+
+/-- The per-`k` certificate identity with the actual binomials, from the mathlib ratios. -/
+lemma cert_step (n k : ℕ) (hk : k ≤ n + 1) :
+    ((n : ℚ) + 1) * ((n + 1).choose k : ℚ) ^ 2 - (4 * (n : ℚ) + 2) * (n.choose k : ℚ) ^ 2
+      = Gc n (k + 1) - Gc n k := by
+  have hn1 : ((n : ℚ) + 1) ≠ 0 := by positivity
+  have hk1 : ((k : ℚ) + 1) ≠ 0 := by positivity
+  have hcast : ((n + 1 - k : ℕ) : ℚ) = ((n : ℚ) + 1) - (k : ℚ) := by
+    rw [Nat.cast_sub hk]; push_cast; ring
+  have r1 : (n.choose k : ℚ) * ((n : ℚ) + 1) = ((n + 1).choose k : ℚ) * (((n : ℚ) + 1) - (k : ℚ)) := by
+    have h := Nat.choose_mul_succ_eq n k
+    have : ((n.choose k * (n + 1) : ℕ) : ℚ) = (((n + 1).choose k * (n + 1 - k) : ℕ) : ℚ) :=
+      congrArg (Nat.cast : ℕ → ℚ) h
+    push_cast [hcast] at this ⊢; linarith [this]
+  have r2 : ((n + 1).choose (k + 1) : ℚ) * ((k : ℚ) + 1)
+          = ((n + 1).choose k : ℚ) * (((n : ℚ) + 1) - (k : ℚ)) := by
+    have h := Nat.choose_succ_right_eq (n + 1) k
+    have : (((n + 1).choose (k + 1) * (k + 1) : ℕ) : ℚ) = (((n + 1).choose k * ((n + 1) - k) : ℕ) : ℚ) :=
+      congrArg (Nat.cast : ℕ → ℚ) h
+    push_cast [hcast] at this ⊢; linarith [this]
+  have e1 : (n.choose k : ℚ) = ((n + 1).choose k : ℚ) * (((n : ℚ) + 1) - (k : ℚ)) / ((n : ℚ) + 1) := by
+    rw [eq_div_iff hn1]; linarith [r1]
+  have e2 : ((n + 1).choose (k + 1) : ℚ)
+          = ((n + 1).choose k : ℚ) * (((n : ℚ) + 1) - (k : ℚ)) / ((k : ℚ) + 1) := by
+    rw [eq_div_iff hk1]; linarith [r2]
+  unfold Gc
+  rw [e1, e2]; push_cast; field_simp; ring
+
+/-- The recurrence, telescoped from the certificate: `(n+1)·T(n+1) = (4n+2)·T(n)`. -/
+lemma recurrence (n : ℕ) : ((n : ℚ) + 1) * T (n + 1) = (4 * (n : ℚ) + 2) * T n := by
+  have g0 : Gc n 0 = 0 := by unfold Gc; simp
+  have gtop : Gc n (n + 2) = 0 := by unfold Gc; rw [Nat.choose_eq_zero_of_lt (by omega)]; simp
+  have hsum : ∑ k ∈ range (n + 2),
+        (((n : ℚ) + 1) * ((n + 1).choose k : ℚ) ^ 2 - (4 * (n : ℚ) + 2) * (n.choose k : ℚ) ^ 2)
+      = ∑ k ∈ range (n + 2), (Gc n (k + 1) - Gc n k) := by
+    refine Finset.sum_congr rfl (fun k hk => ?_)
+    exact cert_step n k (by rw [Finset.mem_range] at hk; omega)
+  rw [Finset.sum_range_sub (Gc n) (n + 2), g0, gtop] at hsum
+  rw [Finset.sum_sub_distrib, ← Finset.mul_sum, ← Finset.mul_sum] at hsum
+  have hA : ∑ k ∈ range (n + 2), ((n + 1).choose k : ℚ) ^ 2 = T (n + 1) := rfl
+  have hB : ∑ k ∈ range (n + 2), (n.choose k : ℚ) ^ 2 = T n := by
+    rw [Finset.sum_range_succ, Nat.choose_eq_zero_of_lt (Nat.lt_succ_self n)]; simp [T]
+  rw [hA, hB] at hsum
+  linarith [hsum]
+
+/-- Closed form, from the certificate recurrence + mathlib's central-binomial recurrence. -/
+lemma T_eq_central (n : ℕ) : T n = (Nat.centralBinom n : ℚ) := by
+  induction n with
+  | zero => simp [T, Nat.centralBinom]
+  | succ n ih =>
+    have hn1 : ((n : ℚ) + 1) ≠ 0 := by positivity
+    have hrec := recurrence n
+    have hc : ((n : ℚ) + 1) * (Nat.centralBinom (n + 1) : ℚ)
+            = (4 * (n : ℚ) + 2) * (Nat.centralBinom n : ℚ) := by
+      have : (((n + 1) * Nat.centralBinom (n + 1) : ℕ) : ℚ)
+           = ((2 * (2 * n + 1) * Nat.centralBinom n : ℕ) : ℚ) :=
+        congrArg (Nat.cast : ℕ → ℚ) (Nat.succ_mul_centralBinom_succ n)
+      push_cast at this ⊢; linarith [this]
+    rw [ih] at hrec
+    exact mul_left_cancel₀ hn1 (hrec.trans hc.symm)
+
+/-- **The flagship: `∑_{k=0}^{n} C(n,k)² = C(2n,n)`**, proved end-to-end from the
+    Mathematica-found creative-telescoping certificate — sound, no trust axiom. -/
+theorem sum_choose_sq (n : ℕ) : ∑ k ∈ range (n + 1), (n.choose k) ^ 2 = Nat.centralBinom n := by
+  have h := T_eq_central n
+  unfold T at h
+  exact_mod_cast h
+
 end Mathematica.Telescoping
 
 -- The soundness payoff: the certificate-verified identities carry NO trust axiom.
 #print axioms Mathematica.Telescoping.odd_sum
 #print axioms Mathematica.Telescoping.sum_choose
 #print axioms Mathematica.Telescoping.wz_cert
+#print axioms Mathematica.Telescoping.sum_choose_sq
