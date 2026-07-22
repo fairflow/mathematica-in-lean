@@ -186,11 +186,23 @@ time. [`examples/CreativeTelescoping.lean`](examples/CreativeTelescoping.lean) t
 *verifies* that same certificate soundly (`field_simp; ring`, telescoping, induction),
 proving the identity end-to-end with **no trust axiom** —
 [`examples/ZeilbergerBridge.lean`](examples/ZeilbergerBridge.lean) shows the discovery
-half live. **What's automated:** the *discovery* (the bridge drives Mathematica to
-find the certificate). **What isn't yet:** turning a fetched certificate into a
-machine-generated Lean proof — that would be a `mathematica_telescope` tactic (parse
-`R`, define the boundary-safe `G`, discharge the per-`k` identity by `field_simp;
-ring`, telescope, induct). Today that assembly is hand-written.
+half live.
+
+The **`mathematica_telescope`** tactic ties this into one line for the supported
+binomial-sum family:
+
+```lean
+example (n : ℕ) : ∑ k ∈ Finset.range (n+1), (n.choose k)^2 = (2*n).choose n := by
+  mathematica_telescope   -- fetches WZCert[C(n,k)^2] via the bridge, then closes
+```
+
+It recognises the summand, **fetches the certificate through the bridge** at tactic
+time (reporting the recurrence and `R(n,k)` it found), and closes the goal. *Scope
+(v1):* it wires up the *discovery* and closes the `p = 1, 2` family via the library
+lemma. The sound certificate *verification* is `wz_cert`; turning an arbitrary fetched
+`R` into a machine-generated closed-form proof term (define the boundary-safe `G`,
+discharge the per-`k` identity, telescope, induct) is the remaining research-grade step
+— the hand-written L1b proof is the reference.
 
 ### `runCommandOn` — apply a command to a Lean term (the programmatic core)
 
@@ -266,6 +278,7 @@ The pieces (all under `Mathematica/`, each with build-time tests):
 | `Tactic` | — | transports, `runCommandOn*`, `evalMathematica`, `mathematica_simp` |
 | `Ring` | — | `mathematica_ring` — sound certificate mode: Mathematica finds a `PolynomialReduce` certificate, `ring1`/`linear_combination` checks it (no trust axiom) |
 | `Rewrite` | — | `mathematica_rw` — sound Mathematica-assisted rewriting: a fixed-point subterm loop (simplify a subterm in Mathematica, validate with `ring`/`field_simp`/`norm_num`/`simp`, rewrite in place via `kabstract`, repeat) — no trust axiom |
+| `Telescope` | — | `mathematica_telescope` — fetches a WZ certificate through the bridge (`WZCert`) for a binomial sum and closes the identity (v1: `C(n,k)^{1,2}` family) |
 | `Syntax` | — | `mathematica%` (term) + `#mathematica` (command) — embedding |
 | `Widget` | — | `#mathematica_plot` — a Mathematica graphic in the infoview (ProofWidgets) |
 | `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Mathematica) + `OutputFormat` (Mathematica → wire) |

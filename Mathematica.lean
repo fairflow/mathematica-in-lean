@@ -13,5 +13,6 @@ import Mathematica.Translate
 import Mathematica.Tactic
 import Mathematica.Ring
 import Mathematica.Rewrite
+import Mathematica.Telescope
 import Mathematica.Syntax
 import Mathematica.Widget

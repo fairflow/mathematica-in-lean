@@ -69,6 +69,17 @@ theorem rw_subterm (x : ℝ) (h : x - 1 ≠ 0) :
 #print axioms rw_rational       -- [propext, Classical.choice, Quot.sound]
 #print axioms rw_subterm        -- [propext, Classical.choice, Quot.sound]
 
+/-! ### `mathematica_telescope` — fetch a WZ certificate through the bridge, then close
+
+Each proof fetches its creative-telescoping certificate live via the bridge (`WZCert`)
+and closes the binomial-sum identity. -/
+
+theorem tele_choose (n : ℕ) : ∑ k ∈ Finset.range (n + 1), n.choose k = 2 ^ n := by
+  mathematica_telescope
+theorem tele_choose_sq (n : ℕ) :
+    ∑ k ∈ Finset.range (n + 1), (n.choose k) ^ 2 = (2 * n).choose n := by
+  mathematica_telescope
+
 -- Raw evaluation: compute a value in Mathematica and bring it back as a Lean term.
 run_cmd do
   let e ← Lean.Elab.Command.liftTermElabM do
