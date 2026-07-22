@@ -90,6 +90,30 @@ the goal is an algebraic equality — you get a real, axiom-free proof. Fall bac
 `mathematica_simp` for goals outside `ring`'s theory (trig, transcendental,
 inequalities), accepting the trust axiom.
 
+### `mathematica_rw` — sound Mathematica-assisted rewriting
+
+The general form of the certificate idea: **Mathematica proposes, Lean disposes.**
+For an equality goal `a = b`, `mathematica_rw` asks Mathematica to simplify each side,
+then *validates* each proposed simplification with a Lean certificate tactic
+(`rfl` / `ring1` / `field_simp; ring1` / `norm_num` / `simp`). Only validated steps
+are used, so the proof is kernel-checked — **no `Mathematica.trust`**.
+
+```lean
+example (x : ℝ) : (x + 1)^2 = x^2 + 2*x + 1 := by mathematica_rw
+-- rational functions — validated by `field_simp`, which plain `ring` cannot do:
+example (x : ℝ) (h : x - 1 ≠ 0) : (x^2 - 1)/(x - 1) = x + 1 := by mathematica_rw
+example : (2^10 : ℝ) = 1024 := by mathematica_rw
+mathematica_rw "FullSimplify"   -- any Mathematica command: Factor, Together, …
+```
+
+It's strictly more than `ring`: it uses whichever validation tactic fits each side,
+and Mathematica can reach a normal form a single Lean tactic wouldn't find (validating
+the *step* is then easy). Mathematica's result is rendered to term syntax and
+elaborated **at the goal's type**, so numerals come back correctly typed (`2`, `1`
+over ℝ, not ℕ). If the two sides simplify but don't validate as equal, it leaves the
+simpler goal `a' = b'`. (v1 handles equality goals and the arithmetic/rational
+fragment; finer subterm decomposition and iteration are the natural next step.)
+
 ### `evalMathematica` — compute a value
 
 Run any Mathematica command and bring the result back as a Lean term:
@@ -236,6 +260,7 @@ The pieces (all under `Mathematica/`, each with build-time tests):
 | `Translate` | MM → Lean | `MMExpr → MetaM Expr`: raw unreflection + semantic rules (`Plus→HAdd`, `List`, binders via `MetaM` telescopes). Uses `mkAppM` to infer implicits + synthesise instances (no Qq) |
 | `Tactic` | — | transports, `runCommandOn*`, `evalMathematica`, `mathematica_simp` |
 | `Ring` | — | `mathematica_ring` — sound certificate mode: Mathematica finds a `PolynomialReduce` certificate, `ring1`/`linear_combination` checks it (no trust axiom) |
+| `Rewrite` | — | `mathematica_rw` — sound Mathematica-assisted rewriting: simplify each side in Mathematica, validate each step with `ring`/`field_simp`/`norm_num`/`simp` (no trust axiom) |
 | `Syntax` | — | `mathematica%` (term) + `#mathematica` (command) — embedding |
 | `Widget` | — | `#mathematica_plot` — a Mathematica graphic in the infoview (ProofWidgets) |
 | `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Mathematica) + `OutputFormat` (Mathematica → wire) |

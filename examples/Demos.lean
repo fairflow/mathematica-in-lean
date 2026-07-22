@@ -53,6 +53,17 @@ theorem with_hyp (x y : ℝ) (h : x = y + 1) : x ^ 2 = y ^ 2 + 2 * y + 1 := by
 #print axioms binomial_sound   -- [propext, Classical.choice, Quot.sound]
 #print axioms with_hyp         -- [propext, Classical.choice, Quot.sound]
 
+/-! ### `mathematica_rw` — sound Mathematica-assisted rewriting (Mathematica proposes, Lean disposes)
+
+Simplify each side in Mathematica, validate each step with a Lean certificate tactic.
+Also sound (no `Mathematica.trust`), and broader than `ring`. -/
+
+theorem rw_poly (x : ℝ) : (x + 1) ^ 2 = x ^ 2 + 2 * x + 1 := by mathematica_rw
+/-- A rational function — validated by `field_simp`, which plain `ring` cannot do. -/
+theorem rw_rational (x : ℝ) (h : x - 1 ≠ 0) : (x ^ 2 - 1) / (x - 1) = x + 1 := by mathematica_rw
+theorem rw_numeric : (2 ^ 10 : ℝ) = 1024 := by mathematica_rw
+#print axioms rw_rational       -- [propext, Classical.choice, Quot.sound]
+
 -- Raw evaluation: compute a value in Mathematica and bring it back as a Lean term.
 run_cmd do
   let e ← Lean.Elab.Command.liftTermElabM do
