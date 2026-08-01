@@ -1,18 +1,18 @@
-# Lean 4 ↔ Mathematica — User Guide
+# Lean 4 ↔ Wolfram — User Guide
 
-A bridge that lets **Lean 4 call Mathematica**: reflect a Lean term into
-Mathematica syntax, run any Mathematica command on it (`Simplify`, `Factor`,
+A bridge that lets **Lean 4 call Wolfram (Mathematica)**: reflect a Lean term into
+Wolfram syntax, run any Wolfram command on it (`Simplify`, `Factor`,
 `Solve`, `Integrate`, …), and translate the result back into a Lean `Expr`.
 It runs on a **persistent `WolframKernel`** driven over stdin/stdout — no Python,
 no sockets, no per-call kernel startup.
 
 A Lean-4/mathlib4 port of Lewis & Wu's Lean 3 *MM-Lean* interface.
 
-> **Trust model.** Mathematica is an **oracle**: what it returns is *trusted*, not
+> **Trust model.** Wolfram is an **oracle**: what it returns is *trusted*, not
 > proven in Lean. The `mathematica_simp` tactic closes goals via the
 > `Mathematica.trust` axiom, which shows up in `#print axioms`. This is a tool for
 > **exploration and computation**, not for producing kernel-checked proofs — use
-> Mathematica's answer as a guide, then discharge it properly with `ring`/`simp`/…
+> Wolfram's answer as a guide, then discharge it properly with `ring`/`simp`/…
 > if you need a trusted proof.
 
 ---
@@ -20,7 +20,7 @@ A Lean-4/mathlib4 port of Lewis & Wu's Lean 3 *MM-Lean* interface.
 ## 1. Prerequisites
 
 - This repo's toolchain: Lean 4 `v4.31.0` + mathlib4 (`lake exe cache get && lake build`).
-- A Mathematica / Wolfram Engine install providing `WolframKernel`
+- A Wolfram (Mathematica) / Wolfram Engine install providing `WolframKernel`
   (macOS default: `/Applications/Wolfram.app/Contents/MacOS/WolframKernel`).
 
 ## 2. Setup
@@ -34,23 +34,65 @@ export MATHEMATICA_BRIDGE_KERNEL=/Applications/Wolfram.app/Contents/MacOS/Wolfra
 export MATHEMATICA_BRIDGE_LEANFORM="$(pwd)/wolfram/lean_form.wl"
 ```
 
-Then `import Mathematica` in your file. Smoke-test with the bundled demos:
+Then, in your Lean file, `import Mathematica` **and the mathlib you use**. The bridge
+library deliberately doesn't re-export `Mathlib` (so it stays light), so `ℝ`,
+`Real.sin`, `Finset.range`, … must come from your own imports. For interactive /
+infoview work the simplest is a blanket `import Mathlib`; for a lean file, import the
+specific modules (`Mathlib.Data.Real.Basic` for `ℝ`, the trig module for `Real.sin`, …).
+**Without them, `ℝ` is silently auto-bound as a type variable** and every tactic fails
+with `failed to synthesize instance HAdd ℝ ℝ ?m` — the single most common setup slip.
+
+Smoke-test with the bundled demos:
 
 ```sh
 MATHEMATICA_BRIDGE_LEANFORM="$(pwd)/wolfram/lean_form.wl" \
   lake env lean examples/Demos.lean
 ```
 
-You should see the theorems elaborate and `Mathematica: Prime[100] = 541`.
+You should see the theorems elaborate and `Wolfram: Prime[100] = 541`.
+
+## 2a. Using it in VS Code / the Lean infoview
+
+The tactics run **inside the Lean language server**, during elaboration — the same
+process the infoview talks to. When a tactic fires, the server spawns the
+`WolframKernel` as a child and drives it over the pipe, so `mathematica_ring`,
+`mathematica_rw`, `mathematica_telescope`, `#mathematica`, and `#mathematica_plot`
+all work in the editor exactly as they do at the command line. Two setup points the
+editor makes easy to miss:
+
+1. **The environment must reach the *server*, not just your shell.** If you launch VS
+   Code from the Dock/Finder it does **not** inherit your shell's `export`s, so
+   `MATHEMATICA_BRIDGE_LEANFORM` is unset and the first tactic throws. Any one of these
+   fixes it:
+   - **Launch from a terminal that has the exports:** `code /path/to/mathematica-in-lean`
+     (VS Code then inherits the environment).
+   - **Set it for the server** in Settings (search `@lang:lean4`): `lean4.serverEnv`
+     takes a map, e.g. `{ "MATHEMATICA_BRIDGE_LEANFORM": "/abs/…/wolfram/lean_form.wl" }`
+     (add `MATHEMATICA_BRIDGE_KERNEL` too if your kernel isn't at the macOS default).
+   - **Rely on the zero-config fallback:** when `MATHEMATICA_BRIDGE_LEANFORM` is unset the
+     bridge looks for `wolfram/lean_form.wl` under the server's working directory — which
+     is your open workspace folder — so **just opening the repo root as the folder is
+     enough**, no env at all.
+2. **Import the mathlib you use** (see §2). With only `import Mathematica`, `ℝ` is
+   auto-bound as a type variable and every tactic fails with `HAdd ℝ ℝ ?m`.
+
+**What to expect.** The *first* tactic call boots the kernel — a few seconds where the
+goal shows the yellow "elaborating" bar; it then closes, and every later call reuses the
+one warm kernel (near-instant). Editing a line *above* a bridge tactic makes the server
+re-elaborate and re-run that kernel call (idempotent — you just see the pause again). If
+the kernel ever dies (licence hiccup, timeout), reload the file (`Lean 4: Restart File`,
+`⌘⇧X`/`Ctrl-Shift-X` restarts the server) and it is respawned lazily on the next call.
+`#mathematica_plot` renders its PNG inline in the infoview.
 
 ## 3. Using it
 
 ### `mathematica_simp` — prove a goal
 
-Reflects the goal, `FullSimplify`s it in Mathematica, and closes it if the kernel
+Reflects the goal, `FullSimplify`s it in Wolfram, and closes it if the kernel
 returns `True` (otherwise it replaces the goal with the simplified proposition).
 
 ```lean
+import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic  -- ℝ, Real.sin/cos
 import Mathematica
 open Mathematica
 
@@ -62,26 +104,26 @@ example (n : Nat)   : n + 0 = n                                := by mathematica
 
 ### `mathematica_ring` — prove a goal *soundly* (no trust axiom)
 
-`mathematica_simp` trusts Mathematica (its proofs carry the `Mathematica.trust`
-axiom). `mathematica_ring` does **not**: Mathematica only *finds* a certificate,
+`mathematica_simp` trusts Wolfram (its proofs carry the `Mathematica.trust`
+axiom). `mathematica_ring` does **not**: Wolfram only *finds* a certificate,
 and Lean's own `ring1` / `linear_combination` *checks* it — so the proof is
-kernel-verified and `#print axioms` stays clean. It's the Mathematica analogue of
+kernel-verified and `#print axioms` stays clean. It's the Wolfram analogue of
 mathlib's `polyrith`.
 
 ```lean
--- pure ring identity — Mathematica confirms, `ring1` closes it
+-- pure ring identity — Wolfram confirms, `ring1` closes it
 example (a b : ℝ) : (a + b) ^ 2 = a ^ 2 + 2 * a * b + b ^ 2 := by mathematica_ring
 
--- needs a hypothesis — Mathematica finds the multiplier (x + y + 1),
+-- needs a hypothesis — Wolfram finds the multiplier (x + y + 1),
 -- `linear_combination` verifies it.  Plain `ring` cannot do this.
 example (x y : ℝ) (h : x = y + 1) : x ^ 2 = y ^ 2 + 2 * y + 1 := by mathematica_ring
 ```
 
 For a goal `a = b` with equality hypotheses `hᵢ : pᵢ = qᵢ` in context, it asks
-Mathematica's `PolynomialReduce` for coefficients `cᵢ` with
+Wolfram's `PolynomialReduce` for coefficients `cᵢ` with
 `a - b = Σ cᵢ (pᵢ - qᵢ)`, then closes with `linear_combination Σ cᵢ * hᵢ` (or
 `ring1` when there are no hypotheses). Use it over a **commutative ring** — best a
-field (ℝ, ℚ), since the coefficients may be rational. If Mathematica can't reduce
+field (ℝ, ℚ), since the coefficients may be rational. If Wolfram can't reduce
 the goal to a ring identity (e.g. it's a trig identity, or simply false) it says
 so and suggests `mathematica_simp`.
 
@@ -90,10 +132,10 @@ the goal is an algebraic equality — you get a real, axiom-free proof. Fall bac
 `mathematica_simp` for goals outside `ring`'s theory (trig, transcendental,
 inequalities), accepting the trust axiom.
 
-### `mathematica_rw` — sound Mathematica-assisted rewriting
+### `mathematica_rw` — sound Wolfram-assisted rewriting
 
-The general form of the certificate idea: **Mathematica proposes, Lean disposes.**
-For an equality goal `a = b`, `mathematica_rw` asks Mathematica to simplify each side,
+The general form of the certificate idea: **Wolfram proposes, Lean disposes.**
+For an equality goal `a = b`, `mathematica_rw` asks Wolfram to simplify each side,
 then *validates* each proposed simplification with a Lean certificate tactic
 (`rfl` / `ring1` / `field_simp; ring1` / `norm_num` / `simp`). Only validated steps
 are used, so the proof is kernel-checked — **no `Mathematica.trust`**.
@@ -105,23 +147,23 @@ example (x : ℝ) (h : x - 1 ≠ 0) : (x^2 - 1)/(x - 1) = x + 1 := by mathematic
 example : (2^10 : ℝ) = 1024 := by mathematica_rw
 -- a subterm buried inside a larger term is rewritten in place; the rest is untouched:
 example (x : ℝ) (h : x - 1 ≠ 0) : x + (x^2 - 1)/(x - 1) = x + (x + 1) := by mathematica_rw
-mathematica_rw "FullSimplify"   -- any Mathematica command: Factor, Together, …
+mathematica_rw "FullSimplify"   -- any Wolfram command: Factor, Together, …
 ```
 
 **How it works (a fixed-point subterm loop).** It picks a numeric-valued subterm
-(largest first), simplifies it in Mathematica, validates the step, and rewrites *that
+(largest first), simplifies it in Wolfram, validates the step, and rewrites *that
 subterm in place* — the navigation is `MVarId.rewrite`/`kabstract`, which abstracts the
 occurrences into the congruence motive. It repeats to a fixed point, then makes a
 best-effort close (`rfl`/`ring1`/`field_simp;ring1`/`norm_num`/`simp`/`decide`/`omega`).
 So it works on any goal with numeric subterms, not just bare equalities, and only ever
-makes a move the kernel can check. Mathematica's result is rendered to term syntax and
+makes a move the kernel can check. Wolfram's result is rendered to term syntax and
 elaborated **at the subterm's type**, so numerals come back correctly typed (`2`, `1`
 over ℝ, not ℕ). It's strictly more than `ring`: each step uses whichever validation
-tactic fits, and Mathematica reaches normal forms a single Lean tactic wouldn't.
+tactic fits, and Wolfram reaches normal forms a single Lean tactic wouldn't.
 
-### `evalMathematica` — compute a value
+### `evalWolfram` — compute a value
 
-Run any Mathematica command and bring the result back as a Lean term:
+Run any Wolfram command and bring the result back as a Lean term:
 
 ```lean
 run_cmd do
@@ -130,9 +172,9 @@ run_cmd do
   Lean.logInfo m!"{e}"            -- 541
 ```
 
-### Embedding Mathematica — `mathematica%` and `#mathematica`
+### Embedding Wolfram — `mathematica%` and `#mathematica`
 
-Two custom-syntax forms let you write Mathematica directly in a Lean file:
+Two custom-syntax forms let you write Wolfram directly in a Lean file:
 
 ```lean
 -- term: pull a computed value into Lean
@@ -147,13 +189,13 @@ def mersenne31 : Nat := mathematica% "2^31 - 1"
 
 Because the bridge is **one long-lived kernel session**, definitions made in one
 `#mathematica` command are visible to later ones — so a file can build up a full
-Mathematica program. `mathematica%` is best for closed / numeric results (a free
-Mathematica symbol like `x` has no Lean counterpart); `#mathematica` shows
-Mathematica's own `InputForm`, so it works for symbolic results too.
+Wolfram program. `mathematica%` is best for closed / numeric results (a free
+Wolfram symbol like `x` has no Lean counterpart); `#mathematica` shows
+Wolfram's own `InputForm`, so it works for symbolic results too.
 
 ### Graphics — `#mathematica_plot`
 
-Render a Mathematica graphic in the Lean infoview:
+Render a Wolfram graphic in the Lean infoview:
 
 ```lean
 #mathematica_plot "Plot[Sin[x], {x, 0, 2 Pi}]"
@@ -162,7 +204,7 @@ Render a Mathematica graphic in the Lean infoview:
 
 The (headless) kernel rasterises the graphic to a PNG, base64-encodes it, and the
 bridge shows it as an `<img>` via ProofWidgets (which ships with mathlib — no new
-dependency). Works for anything Mathematica can `Export` to PNG: `Plot`, `Plot3D`,
+dependency). Works for anything Wolfram can `Export` to PNG: `Plot`, `Plot3D`,
 `ContourPlot`, `Graphics`, `Histogram`, …. The image appears in the **infoview**
 (VS Code / your Lean editor) at the command; a headless `lean` run just shows the
 alt text.
@@ -206,11 +248,11 @@ discharge the per-`k` identity, telescope, induct) is the remaining research-gra
 
 ### `runCommandOn` — apply a command to a Lean term (the programmatic core)
 
-Reflect `e`, wrap it with a Mathematica command, translate the result back:
+Reflect `e`, wrap it with a Wolfram command, translate the result back:
 
 ```lean
 open Lean Lean.Meta in
--- factor a Lean polynomial with Mathematica, get a Lean `Expr` back
+-- factor a Lean polynomial with Wolfram, get a Lean `Expr` back
 def factor (e : Expr) : MetaM Expr := do
   runCommandOn (← defaultTransport)
     (fun s => "Activate[LeanForm[" ++ s ++ "]] // Factor") e
@@ -222,10 +264,10 @@ The full family (ports of the Lean 3 `run_command_on*`):
 |---|---|---|
 | `runCommandOn t cmd e` | one `Expr` | |
 | `runCommandOn2 t cmd e₁ e₂` | two `Expr`s | `cmd : String → String → String` |
-| `runCommandOnList t cmd es` | a `List Expr` | reflected as a Mathematica `{…}` list |
-| `runCommandOn2Using` / `runCommandOnListUsing` | + `Get` a file first | for your own Mathematica defns |
+| `runCommandOnList t cmd es` | a `List Expr` | reflected as a Wolfram `{…}` list |
+| `runCommandOn2Using` / `runCommandOnListUsing` | + `Get` a file first | for your own Wolfram defns |
 | `loadFile t dir path` | — | load a `.wl` into the kernel's context |
-| `evalMathematica t cmd` | — | raw command, no Lean input |
+| `evalWolfram t cmd` | — | raw command, no Lean input |
 
 `defaultTransport : IO Transport` gives the shared persistent kernel.
 
@@ -271,22 +313,22 @@ The pieces (all under `Mathematica/`, each with build-time tests):
 
 | module | direction | role |
 |---|---|---|
-| `MMExpr`, `Wire` | MM → Lean | the Mathematica-expr AST + parser for the terse wire grammar `I[n] T["s"] Y[sym] A hd[args]` |
+| `MMExpr`, `Wire` | MM → Lean | the Wolfram-expr AST + parser for the terse wire grammar `I[n] T["s"] Y[sym] A hd[args]` |
 | `Reflect` | Lean → MM | `Expr → String`, emitting `LeanConst/App/Lambda/Pi/Sort/Lit/…`. In `MetaM`, so free vars & metavars resolve against the context |
 | `Unreflect` | MM → Lean | leaf translators for `Name` / `Level` / `BinderInfo` |
 | `Translate` | MM → Lean | `MMExpr → MetaM Expr`: raw unreflection + semantic rules (`Plus→HAdd`, `List`, binders via `MetaM` telescopes). Uses `mkAppM` to infer implicits + synthesise instances (no Qq) |
-| `Tactic` | — | transports, `runCommandOn*`, `evalMathematica`, `mathematica_simp` |
-| `Ring` | — | `mathematica_ring` — sound certificate mode: Mathematica finds a `PolynomialReduce` certificate, `ring1`/`linear_combination` checks it (no trust axiom) |
-| `Rewrite` | — | `mathematica_rw` — sound Mathematica-assisted rewriting: a fixed-point subterm loop (simplify a subterm in Mathematica, validate with `ring`/`field_simp`/`norm_num`/`simp`, rewrite in place via `kabstract`, repeat) — no trust axiom |
+| `Tactic` | — | transports, `runCommandOn*`, `evalWolfram`, `mathematica_simp` |
+| `Ring` | — | `mathematica_ring` — sound certificate mode: Wolfram finds a `PolynomialReduce` certificate, `ring1`/`linear_combination` checks it (no trust axiom) |
+| `Rewrite` | — | `mathematica_rw` — sound Wolfram-assisted rewriting: a fixed-point subterm loop (simplify a subterm in Wolfram, validate with `ring`/`field_simp`/`norm_num`/`simp`, rewrite in place via `kabstract`, repeat) — no trust axiom |
 | `Telescope` | — | `mathematica_telescope` — fetches a WZ certificate through the bridge (`WZCert`) for a binomial sum and closes the identity (v1: `C(n,k)^{1,2}` family) |
 | `Syntax` | — | `mathematica%` (term) + `#mathematica` (command) — embedding |
-| `Widget` | — | `#mathematica_plot` — a Mathematica graphic in the infoview (ProofWidgets) |
-| `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Mathematica) + `OutputFormat` (Mathematica → wire) |
+| `Widget` | — | `#mathematica_plot` — a Wolfram graphic in the infoview (ProofWidgets) |
+| `wolfram/lean_form.wl` | both | `LeanForm` (reflected Lean → Wolfram) + `OutputFormat` (Wolfram → wire) |
 
 **Why two-sided translation?** A Lean term is raw: `x + y` is
 `@HAdd.hAdd ℝ ℝ ℝ inst x y` — six arguments deep. `LeanForm.wl` collapses that to
-`Plus[x, y]` so Mathematica can do algebra; then `OutputFormat` + `Translate` turn
-Mathematica's answer back into a Lean `Expr`. Anything `LeanForm` doesn't recognise
+`Plus[x, y]` so Wolfram can do algebra; then `OutputFormat` + `Translate` turn
+Wolfram's answer back into a Lean `Expr`. Anything `LeanForm` doesn't recognise
 passes through as raw `Lean…[…]` and reconstructs verbatim on the Lean side, so no
 information is lost in a round trip.
 
@@ -305,12 +347,12 @@ interleave on the shared pipe.
 
 To support a new operator in both directions:
 
-1. **Lean → Mathematica** — add a rule to `wolfram/lean_form.wl`:
+1. **Lean → Wolfram** — add a rule to `wolfram/lean_form.wl`:
    ```wolfram
    LeanForm[LeanApp[…LeanConst[LeanName["Foo", "bar"], _]…], v_] := <Mathematica>
    ```
    Get the exact nesting/arg-count from the reflection probe below.
-2. **Mathematica → Lean** — add a case for the Mathematica head in
+2. **Wolfram → Lean** — add a case for the Wolfram head in
    `exprOfMMExpr`'s `appSym` (`Mathematica/Translate.lean`).
 
 **Reflection probe** — see exactly what a term reflects to (so you can write the
@@ -326,7 +368,7 @@ open Lean Lean.Meta Mathematica
 `wolfram/lean_form_test.wls` (run: `wolframscript -file wolfram/lean_form_test.wls`)
 unit-tests the `.wl` rules against captured reflected forms.
 
-## 6a. The reverse bridge — verifying claims in Lean from Mathematica (`LeanCheck`)
+## 6a. The reverse bridge — verifying claims in Lean from Wolfram (`LeanCheck`)
 
 The bridge also runs *the other way*: a Wolfram user can ask Lean to check a claim.
 `wolfram/lean_verify.wl` provides `LeanCheck`, paired with the `lean_verify` service
@@ -357,7 +399,7 @@ need the richer, frontend-hosted prover (see `docs/REVERSE_BRIDGE_DESIGN.md`).
 
 ## 7. Limitations
 
-- **Trust:** `mathematica_simp` trusts Mathematica (`Mathematica.trust` in
+- **Trust:** `mathematica_simp` trusts Wolfram (`Mathematica.trust` in
   `#print axioms`) — not for verified proofs. Prefer **`mathematica_ring`** for
   algebraic equalities: it produces a genuinely checked, axiom-free proof.
 - **Operator coverage** in `lean_form.wl` is the common arithmetic/logic/relational

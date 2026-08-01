@@ -1,6 +1,6 @@
-# Mathematica side of the bridge
+# Wolfram side of the bridge
 
-This directory is the Mathematica half: the translation rules and their tests.
+This directory is the Wolfram (Mathematica) half: the translation rules and their tests.
 How to *use* the bridge from Lean (transports, the `mathematica_simp` tactic,
 `runCommandOn`, …) is in **[../USER_GUIDE.md](../USER_GUIDE.md)**.
 
@@ -8,15 +8,15 @@ How to *use* the bridge from Lean (transports, the `mathematica_simp` tactic,
 
 | File | Role |
 |------|------|
-| `lean_form.wl` | `LeanForm` — reflected Lean (mathlib4) → idiomatic Mathematica — plus the `OutputFormat` wire serialiser. |
+| `lean_form.wl` | `LeanForm` — reflected Lean (mathlib4) → idiomatic Wolfram — plus the `OutputFormat` wire serialiser. |
 | `lean_form_test.wls` | unit tests for the rules. Run: `wolframscript -file lean_form_test.wls`. |
 
 ## What `lean_form.wl` does
 
-`LeanForm[reflected]` rewrites a reflected Lean term into a Mathematica expression
-Mathematica can compute with:
+`LeanForm[reflected]` rewrites a reflected Lean term into a Wolfram expression
+Wolfram can compute with:
 
-- operators → Mathematica heads: `HAdd.hAdd → Plus`, `HMul.hMul → Times`,
+- operators → Wolfram heads: `HAdd.hAdd → Plus`, `HMul.hMul → Times`,
   `HSub.hSub → Subtract`, `HDiv.hDiv → Divide`, `HPow.hPow → Power`,
   `Neg.neg → -1·`, `LT.lt → Less` (and `LE`/`GT`/`GE`), `Eq → Equal`,
   `And`/`Or`/`Not`, `Real.sin/cos/tan → Sin/Cos/Tan`, `Real.pi → Pi`;
@@ -24,7 +24,7 @@ Mathematica can compute with:
 - anything unrecognised passes through as raw `Lean…[…]` so the Lean side can
   reconstruct it verbatim (nothing is lost in a round trip).
 
-`OutputFormat[expr]` serialises a Mathematica expression to the terse wire grammar
+`OutputFormat[expr]` serialises a Wolfram expression to the terse wire grammar
 (`I[n]  T["s"]  Y[sym]  A hd[args]`) that `Mathematica.Wire.parse` reads back.
 
 ## How it's driven (no Python, no socket server)

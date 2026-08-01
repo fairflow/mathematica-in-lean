@@ -1,17 +1,18 @@
 # mathematica-in-lean
 
-A **bidirectional Lean 4 ↔ Mathematica bridge** with **sound**, CAS-assisted tactics.
-Reflect a Lean term, run any Mathematica command on it (`Simplify`, `Factor`, `Solve`,
+A **bidirectional Lean 4 ↔ Wolfram (Mathematica) bridge** with **sound**, CAS-assisted tactics.
+Reflect a Lean term, run any Wolfram command on it (`Simplify`, `Factor`, `Solve`,
 …), and translate the result back — over a persistent `WolframKernel` driven on
 stdin/stdout (**no Python, no sockets**). A Lean 4 + mathlib4 port and major extension
 of Lewis & Wu's Lean 3 *MM-Lean* interface.
 
-The principle throughout: **Mathematica discovers, Lean's kernel verifies.** Most
-tactics here are *sound* — Mathematica proposes a certificate or a simplification and
+The principle throughout: **Wolfram discovers, Lean's kernel verifies.** Most
+tactics here are *sound* — Wolfram proposes a certificate or a simplification and
 Lean *checks* it, so `#print axioms` stays free of any trust axiom.
 
 ```lean
-import Mathematica
+import Mathlib.Data.Real.Basic   -- your file imports the mathlib it uses (ℝ here);
+import Mathematica               -- the bridge stays light and doesn't re-export Mathlib
 -- sound: a rational-function identity plain `ring` cannot do
 example (x : ℝ) (h : x - 1 ≠ 0) : (x^2 - 1)/(x - 1) = x + 1 := by mathematica_rw
 -- sound: a binomial sum whose certificate is found by Mathematica
@@ -27,17 +28,17 @@ example (n : ℕ) : ∑ k ∈ Finset.range (n+1), (n.choose k)^2 = (2*n).choose 
 | `mathematica_rw` | Lean → MM | fixed-point subterm rewriting — simplify a subterm in MM, validate the step (`ring`/`field_simp`/`norm_num`/`simp`), rewrite in place, repeat | ✅ |
 | `mathematica_telescope` | Lean → MM | fetch a Wilf–Zeilberger certificate through the bridge for a binomial sum and close | ✅ |
 | `mathematica_simp` | Lean → MM | `FullSimplify`; closes via the `Mathematica.trust` axiom | ✗ (oracle) |
-| `LeanCheck` (Wolfram) | MM → Lean | verify a Mathematica claim in Lean's kernel, from a notebook | ✅ |
+| `LeanCheck` (Wolfram) | MM → Lean | verify a Wolfram claim in Lean's kernel, from a notebook | ✅ |
 
-Plus `evalMathematica` / `runCommandOn*` (call a command on Lean terms), the embedding
-syntax `mathematica%` / `#mathematica`, `#mathematica_plot` (a Mathematica graphic in
+Plus `evalWolfram` / `runCommandOn*` (call a command on Lean terms), the embedding
+syntax `mathematica%` / `#mathematica`, `#mathematica_plot` (a Wolfram graphic in
 the infoview), and `WZCert` on the Wolfram side (a creative-telescoping certificate
 finder callable through the bridge).
 
 ## Flagship: certified creative telescoping
 
 [`examples/CreativeTelescoping.lean`](examples/CreativeTelescoping.lean) proves
-`∑ C(n,k)² = C(2n,n)` **end to end, sound**: Mathematica's `WZCert` *discovers* the
+`∑ C(n,k)² = C(2n,n)` **end to end, sound**: Wolfram's `WZCert` *discovers* the
 Wilf–Zeilberger certificate `R(n,k) = k²(2k−3n−3)/(n+1−k)²`; Lean *verifies* it
 (`field_simp; ring`), telescopes the finite sum (handling the boundary), and inducts —
 with `#print axioms` free of any trust axiom.
@@ -47,12 +48,12 @@ half live through the bridge.
 This is the "**experimental-mathematics → formal-proof**" pipeline: the CAS finds a
 certificate no elementary Lean tactic gives, and the kernel checks it. (cf. the Coq
 formalisation of ζ(3)'s irrationality via creative telescoping — this is the first such
-pipeline in Lean 4, and via Mathematica.)
+pipeline in Lean 4, and via Wolfram.)
 
 ## Both directions
 
-- **Forward** (Lean → Mathematica) — the tactics above.
-- **Reverse** (Mathematica → Lean) — `LeanCheck[claim]` from a Wolfram session ships a
+- **Forward** (Lean → Wolfram) — the tactics above.
+- **Reverse** (Wolfram → Lean) — `LeanCheck[claim]` from a Wolfram session ships a
   claim to a headless Lean service (`lake exe lean_verify`), which verifies it in the
   kernel and returns the verdict with its axioms. The *sound* direction: Lean's kernel
   is the trusted party. See [docs/REVERSE_BRIDGE_DESIGN.md](docs/REVERSE_BRIDGE_DESIGN.md).
@@ -78,7 +79,7 @@ of the default `lake build`, which builds the library alone).
 - **[docs/REVERSE_BRIDGE_DESIGN.md](docs/REVERSE_BRIDGE_DESIGN.md)** — the reverse
   bridge (`LeanCheck` + the `lean_verify` service).
 - **[MIGRATION.md](MIGRATION.md)** — the Lean 3 → Lean 4 port map and design notes.
-- **[wolfram/README.md](wolfram/README.md)** — the Mathematica side (`lean_form.wl`).
+- **[wolfram/README.md](wolfram/README.md)** — the Wolfram side (`lean_form.wl`).
 
 ## Layout
 
@@ -86,7 +87,7 @@ of the default `lake build`, which builds the library alone).
   `MMExpr → Expr` translation engine, transports, and the tactics
   (`Tactic`, `Ring`, `Rewrite`, `Telescope`, `Syntax`, `Widget`).
 - `Reverse/` — the reverse bridge: `lean_verify`, a headless Lean verification service.
-- `wolfram/` — the Mathematica side: `lean_form.wl` (translation rules, `OutputFormat`,
+- `wolfram/` — the Wolfram side: `lean_form.wl` (translation rules, `OutputFormat`,
   `WZCert`), `lean_verify.wl` (`LeanCheck`), and tests.
 - `examples/` — demos and the case study (need a live kernel).
 - `src/` — the original Lean 3 sources, kept for reference.
@@ -94,10 +95,10 @@ of the default `lake build`, which builds the library alone).
 ## Trust model
 
 **Sound by default.** `mathematica_ring`, `mathematica_rw`, `mathematica_telescope`,
-and the reverse `LeanCheck` all yield **kernel-checked** proofs — Mathematica supplies
+and the reverse `LeanCheck` all yield **kernel-checked** proofs — Wolfram supplies
 a certificate or simplification and Lean verifies it, so no trust axiom enters
 (`#print axioms` shows only the standard mathlib axioms). The one exception is
-`mathematica_simp`, which *trusts* Mathematica via the `Mathematica.trust` axiom
+`mathematica_simp`, which *trusts* Wolfram via the `Mathematica.trust` axiom
 (handy for exploration; it shows up in `#print axioms`).
 
 ---

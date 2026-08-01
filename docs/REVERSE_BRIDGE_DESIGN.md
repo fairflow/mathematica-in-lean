@@ -1,49 +1,49 @@
-# Design: the reverse bridge — Mathematica users calling Lean
+# Design: the reverse bridge — Wolfram users calling Lean
 
 *Status: design draft. Nothing here is built yet. This is the write-up of "big
-bet #2": letting someone who lives in a Wolfram notebook get Lean-level certainty
-without leaving Mathematica.*
+bet #2": letting someone who lives in a Wolfram (Mathematica) notebook get Lean-level certainty
+without leaving Wolfram.*
 
 ---
 
 ## 1. Motivation
 
-Everything the bridge does today is **Lean calling Mathematica**, with Mathematica
+Everything the bridge does today is **Lean calling Wolfram**, with Wolfram
 as an *unsound oracle* — `mathematica_simp` even records a `Mathematica.trust`
 axiom. That serves a Lean user reaching out for computation. It does nothing for a
-**Mathematica-native user**, who never opens a `.lean` file.
+**Wolfram-native user**, who never opens a `.lean` file.
 
-The reverse bridge flips the roles. Mathematica is famously willing to hand you an
+The reverse bridge flips the roles. Wolfram is famously willing to hand you an
 answer with **no guarantee** — `Integrate` returns a closed form, `Simplify`
 asserts an identity, `Solve` gives roots — and the user has no cheap way to know
 it is *correct* (branch cuts, domain assumptions, silent edge cases). Lean, with
 mathlib, is a trusted checker. So:
 
-> **Mathematica computes; Lean certifies.** The notebook user gets a machine-checked
-> yes/no on the thing Mathematica just claimed, from inside Mathematica.
+> **Wolfram computes; Lean certifies.** The notebook user gets a machine-checked
+> yes/no on the thing Wolfram just claimed, from inside Wolfram.
 
-This is also the *sound* direction. In `mathematica_simp`, Mathematica is trusted.
+This is also the *sound* direction. In `mathematica_simp`, Wolfram is trusted.
 Here, **Lean is the trusted party** — its kernel checks the proof — and the trust
 axiom disappears entirely. `mathematica_ring` already showed the appetite for this
-on the Lean side; the reverse bridge brings it to the Mathematica side.
+on the Lean side; the reverse bridge brings it to the Wolfram side.
 
 ## 2. What already exists (the pleasant surprise)
 
-The Mathematica → Lean *data path is already built and tested*, because the current
-bridge needs it to read Mathematica's answers back:
+The Wolfram → Lean *data path is already built and tested*, because the current
+bridge needs it to read Wolfram's answers back:
 
 | stage | module (existing) | direction |
 |---|---|---|
-| serialise a Mathematica expr to the wire form | `wolfram/lean_form.wl` — `OutputFormat` | MM → wire |
+| serialise a Wolfram expr to the wire form | `wolfram/lean_form.wl` — `OutputFormat` | MM → wire |
 | parse the wire form into an AST | `Mathematica/Wire.lean` — `Wire.parse` | wire → `MMExpr` |
 | translate the AST to a Lean `Expr` | `Mathematica/Translate.lean` — `exprOfMMExpr` | `MMExpr` → `Expr` |
 | reflect a Lean answer back out | `Mathematica/Reflect.lean` + `LeanForm` | Lean → wire → MM |
 
 `exprOfMMExpr` already maps `Plus/Times/Power/Equal/Less/And/ForAll/…` to the right
-mathlib operators and builds binder telescopes. So a Mathematica claim like
+mathlib operators and builds binder telescopes. So a Wolfram claim like
 `x^2 == y^2 + 2 y + 1`, once serialised by `OutputFormat`, becomes a Lean `Expr` **with
 today's code**. What is missing is not translation — it is (a) a way to *run* Lean as
-a service, and (b) a Mathematica-side front end.
+a service, and (b) a Wolfram-side front end.
 
 ## 3. The two new components
 
@@ -80,7 +80,7 @@ Reuses verbatim: `Wire`, `Translate`, `Unreflect`, `Reflect`, the transport mark
 framing. New Lean code is small: the `main` loop, the elaboration wrapper, the
 pipeline driver, and verdict serialisation.
 
-### 3b. Mathematica-side: a small paclet
+### 3b. Wolfram-side: a small paclet
 
 A `Lean` package exposing notebook-level functions. Sketch:
 
@@ -92,7 +92,7 @@ LeanCheck[Sin[x]^2 + Cos[x]^2 == 1]     (* ⇒ "Verified"                     *)
 LeanCheck[x^2 >= 0]                      (* ⇒ "Verified" (nlinarith)         *)
 LeanCheck[x + 1 == x]                    (* ⇒ "Refuted"                      *)
 
-LeanVerify[Integrate[2 x, x], x^2]       (* did Mathematica integrate right? *)
+LeanVerify[Integrate[2 x, x], x^2]       (* did Wolfram integrate right? *)
 LeanValueQ[GCD[126, 84] == 42]           (* closed numeric fact via decide   *)
 ```
 
@@ -109,7 +109,7 @@ Responsibilities of the paclet:
 - **Manage the service.** Start `lean-verify` on first use, keep the handle in a
   package symbol, reuse it (mirror of `defaultTransport`'s lazy `kernelRef`).
 
-The verdict crosses back as a Mathematica-readable `Association` string the paclet
+The verdict crosses back as a Wolfram-readable `Association` string the paclet
 `ToExpression`s — no new parser needed on the Wolfram side.
 
 ## 4. Transport
@@ -139,7 +139,7 @@ Given the elaborated goal `⊢ P`, try a fixed ladder and report the first succe
    trig/special-function identities.
 5. `positivity` / `nlinarith` — inequalities (`x^2 >= 0`).
 6. (optional, later) `polyrith` / `mathematica_ring`'s own certificate search —
-   closing the loop: Lean asks Mathematica for a certificate to verify Mathematica.
+   closing the loop: Lean asks Wolfram for a certificate to verify Wolfram.
 
 Everything the pipeline closes yields a real proof term, so the returned axiom set
 is the actual trust story — kernel-checked, no oracle. A goal nothing closes comes
@@ -149,13 +149,13 @@ back `Unknown` (not a false "Refuted"). `Refuted` is reserved for goals whose
 
 **Counterexamples (stretch).** For a refuted decidable/finite claim, mathlib's
 `decide`/`Finset` search can sometimes surface a witness; report it via the same
-Lean → wire → `LeanForm` path so it lands back in the notebook as a Mathematica
+Lean → wire → `LeanForm` path so it lands back in the notebook as a Wolfram
 expression. General counterexample synthesis is out of scope for v1.
 
 ## 6. Trust model (the whole point)
 
-- **Forward bridge:** Lean trusts Mathematica → `Mathematica.trust` axiom.
-- **Reverse bridge:** Mathematica trusts **Lean's kernel** → *no* new axiom; the
+- **Forward bridge:** Lean trusts Wolfram → `Mathematica.trust` axiom.
+- **Reverse bridge:** Wolfram trusts **Lean's kernel** → *no* new axiom; the
   verdict carries the exact `#print axioms` list so the user sees it resting only
   on `propext / Classical.choice / Quot.sound`.
 
@@ -194,7 +194,7 @@ the reverse-direction analogue of the forward bridge's operator-coverage limit.
      `Language.process`, or compile the wanted tactic set into the service binary)
      rather than extend this hand-rolled loop. The same `evalTactic ring1` runs
      fine under `lean` itself, confirming the frontend is the fix.
-- **P1 — MVP, driven from Mathematica: ✅ first cut** (`wolfram/lean_verify.wl`).
+- **P1 — MVP, driven from Wolfram: ✅ first cut** (`wolfram/lean_verify.wl`).
   `LeanCheck[claim]` (`HoldFirst`, so `x+y==y+x` isn't collapsed to `True`) detects
   free `Global`` symbols, wraps them in `∀ … : domain` (default `"Nat"`; `"Int"`,
   `"Real"` too), serialises via `OutputFormat`, drives `lean_verify`, and returns the
@@ -217,7 +217,7 @@ the reverse-direction analogue of the forward bridge's operator-coverage limit.
   echo-back.
 - **P3 — polish:** counterexamples where decidable, notebook-friendly formatting,
   batch `LeanCheck /@ {…}`, and (fun) `mathematica_ring`-style certificate check so
-  Lean verifies Mathematica *using* Mathematica.
+  Lean verifies Wolfram *using* Wolfram.
 
 ## 8. Open questions (good ones to put to Rob)
 
@@ -227,11 +227,11 @@ the reverse-direction analogue of the forward bridge's operator-coverage limit.
 2. **Scope of "Refuted".** Only when the negation is *proved*, never on pipeline
    failure — agreed? (Avoids calling a hard-but-true claim false.)
 3. **Elaboration hardening.** Running `exprOfMMExpr` on arbitrary notebook input is
-   more adversarial than on Mathematica's own answers. Where do we cap
+   more adversarial than on Wolfram's own answers. Where do we cap
    depth/time, and how do parse/elaboration failures present in the notebook?
 4. **Distribution.** Ship the paclet on the Wolfram side and a prebuilt
    `lean-verify` — or expect users to `lake build` it? Affects how "out of the box"
-   this feels to a pure-Mathematica user.
+   this feels to a pure-Wolfram user.
 
 ---
 
