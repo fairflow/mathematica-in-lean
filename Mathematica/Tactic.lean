@@ -173,9 +173,18 @@ def defaultTransport : IO Transport := kernelLock.atomically do
   | none =>
     let kernel := (← IO.getEnv "MATHEMATICA_BRIDGE_KERNEL").getD
       "/Applications/Wolfram.app/Contents/MacOS/WolframKernel"
-    let some lf ← IO.getEnv "MATHEMATICA_BRIDGE_LEANFORM"
-      | throw (IO.userError
-          "set MATHEMATICA_BRIDGE_LEANFORM to the absolute path of wolfram/lean_form.wl")
+    -- `MATHEMATICA_BRIDGE_LEANFORM` wins if set.  Otherwise fall back to
+    -- `wolfram/lean_form.wl` under the working directory — the Lean server's cwd is
+    -- the project root, so the bridge works in the VS Code infoview with no env setup
+    -- when the repo is the open workspace folder.
+    let lf ← match ← IO.getEnv "MATHEMATICA_BRIDGE_LEANFORM" with
+      | some p => pure p
+      | none =>
+        let candidate := (← IO.currentDir) / "wolfram" / "lean_form.wl"
+        if ← candidate.pathExists then pure candidate.toString
+        else throw (IO.userError
+          "set MATHEMATICA_BRIDGE_LEANFORM to the absolute path of wolfram/lean_form.wl \
+           (or open the repository root as the workspace so wolfram/lean_form.wl resolves)")
     let t ← Transport.persistentKernel kernel lf
     kernelRef.set (some t)
     return t
